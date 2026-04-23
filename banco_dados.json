@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1776862138042,
+    "status": "emitido",
+    "notificado": false,
+    "origem": "OPO",
+    "destino": "LIS",
+    "preco": "300",
+    "simboloMoeda": "€",
+    "codigoMoeda": "EUR",
+    "tipoViagem": "Só Ida",
+    "data": "Qualquer Data",
+    "dataVolta": null,
+    "precoEncontrado": 89.99000000000001,
+    "dataEncontrada": "12/09/2026",
+    "offerId": "off_0000B5YJH14XLqLu4DR5jG",
+    "passengerId": "pas_0000B5YJH0lh5dsexkol9e",
+    "localizador": "FTFU2Z"
+  }
+]
