@@ -1,3 +1,4 @@
+const stripe = require('stripe')('sk_test_51TOq1MJ2bakKpaKf3M3IXIVyeOTHWxQcV0lC0yGiLtxU5XbSXa1Q0Mm0ZJRVNiFcbFPBnebEp5AXJcAVHw1LTfxy00Hpd3NtXj');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -5,6 +6,7 @@ const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin'); // ☁️ Importa Firebase
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,7 +58,7 @@ const enviarEmailConfirmacao = async (emailCliente, nome, origem, destino, pnr) 
                     <p>🛫 <strong>Origem:</strong> ${origem} | 🛬 <strong>Destino:</strong> ${destino}</p>
                     <p style="font-size: 18px; margin-top: 15px;">🎟️ <strong>Localizador (PNR):</strong> <span style="color: #d32f2f; font-weight: bold; font-size: 22px;">${pnr}</span></p>
                 </div>
-                <p style="text-align: center; color: #888; font-size: 12px;">Boa viagem!<br><em>Equipe Go Driver</em></p>
+                <p style="text-align: center; color: #888; font-size: 12px;">Boa viagem!<br><em>Equipe Relax and Travel</em></p>
             </div>
         `
     };
@@ -127,16 +129,40 @@ app.delete('/api/radares/:id', async (req, res) => {
 // 💳 ROTA PAGAMENTO & 🚀 ROTA EMISSÃO
 // ==========================================
 
-app.post('/api/pagamento', async (req, res) => {
-    const { valor, moeda } = req.body; 
-    try {
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(parseFloat(valor) * 100),
-            currency: moeda.toLowerCase(),
-            automatic_payment_methods: { enabled: true },
-        });
-        res.status(200).json({ clientSecret: paymentIntent.client_secret });
-    } catch (error) { res.status(500).json({ erro: error.message }); }
+// ==========================================
+// ROTA DE PAGAMENTO STRIPE - GO DRIVER
+// ==========================================
+app.post('/api/pagamento/intencao', async (req, res) => {
+  try {
+    const { valor, moeda } = req.body;
+
+    if (!valor || !moeda) {
+      return res.status(400).json({ erro: "Valor e moeda são obrigatórios." });
+    }
+
+    // REGRA DE OURO DO STRIPE: Ele não entende vírgulas.
+    // Ele trabalha sempre em cêntimos (centavos). 
+    // Então, se a passagem custa 150.50 EUR, temos de enviar 15050 para o Stripe.
+    const valorEmCentimos = Math.round(parseFloat(valor) * 100);
+
+    // Criar a "Intenção de Pagamento"
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: valorEmCentimos,
+      currency: moeda.toLowerCase(), // O Stripe exige letras minúsculas (ex: 'eur', 'usd', 'brl')
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    // Enviar a "Chave do Cofre" (client_secret) de volta para o telemóvel
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+    });
+    
+  } catch (error) {
+    console.error("Erro ao gerar pagamento no Stripe:", error);
+    res.status(500).json({ erro: "Falha ao processar pagamento." });
+  }
 });
 
 app.post('/api/radares/:id/emitir', async (req, res) => {
@@ -241,7 +267,7 @@ const executarBusca = async () => {
                                 await admin.messaging().send({
                                     token: radar.fcmToken,
                                     notification: {
-                                        title: '✈️ Go Driver: Voo Encontrado!',
+                                        title: '✈️ Relax and Travel: Voo Encontrado!',
                                         body: `Passagem de ${radar.origem} para ${radar.destino} por apenas ${radar.simboloMoeda || ''} ${precoFinal}!`
                                     }
                                 });
@@ -267,12 +293,12 @@ const executarBusca = async () => {
 };
 
 const iniciarRobo = () => {
-    console.log("\n🤖 Robô Go Driver ONLINE com Firebase!");
+    console.log("\n🤖 Robô Relax and Travel ONLINE com Firebase!");
     executarBusca();
-    setInterval(executarBusca, 60000);
+    setInterval(executarBusca, 699999);
 };
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor Go Driver na nuvem (Porta ${PORT})`);
+    console.log(`🚀 Servidor Relax and Travel na nuvem (Porta ${PORT})`);
     iniciarRobo();
 });
