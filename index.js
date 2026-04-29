@@ -126,10 +126,6 @@ app.delete('/api/radares/:id', async (req, res) => {
 });
 
 // ==========================================
-// 💳 ROTA PAGAMENTO & 🚀 ROTA EMISSÃO
-// ==========================================
-
-// ==========================================
 // ROTA DE PAGAMENTO STRIPE - GO DRIVER
 // ==========================================
 app.post('/api/pagamento/intencao', async (req, res) => {
@@ -291,6 +287,21 @@ const executarBusca = async () => {
         }
     }
 };
+
+// Configuração do Robô do Go Driver
+const UM_MINUTO = 60 * 1000; 
+
+// Esta função vai rodar sozinhas a cada 60 segundos
+setInterval(async () => {
+  console.log("🤖 [Robô] Iniciando busca automática de radares...");
+  
+  try {
+    // Aqui deves chamar a função que processa os radares
+    // Exemplo: await processarRadaresAtivos();
+  } catch (error) {
+    console.error("❌ [Erro Robô]:", error);
+  }
+}, UM_MINUTO);
 
 const iniciarRobo = () => {
     console.log("\n🤖 Robô Relax and Travel ONLINE com Firebase!");
