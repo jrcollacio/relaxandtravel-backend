@@ -133,6 +133,14 @@ app.post('/api/pagamento/intencao', async (req, res) => {
       amount: valorEmCentimos,
       currency: moeda.toLowerCase(),
       automatic_payment_methods: { enabled: true },
+      // 👇 O SEGREDO DO PARCELAMENTO ESTÁ AQUI
+      payment_method_options: {
+        card: {
+          installments: {
+            enabled: true, // Força a exibição de opções de parcelamento (ex: Brasil/México)
+          }
+        }
+      }
     });
 
     res.json({ clientSecret: paymentIntent.client_secret });
