@@ -5,6 +5,7 @@ const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin'); // ☁️ Importa Firebase
+const https = require('https'); // 💱 Importado para fazer as consultas de câmbio
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,8 +19,8 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
 
-const db = admin.firestore(); // 🏦 Conexão com o banco de dados
-const radaresColl = db.collection('radares'); // 📁 Nossa coleção principal
+const db = admin.firestore();
+const radaresColl = db.collection('radares');
 
 // ==========================================
 // 🔐 TOKENS DE API
@@ -63,20 +64,48 @@ const enviarEmailConfirmacao = async (emailCliente, nome, origem, destino, pnr) 
 };
 
 // ==========================================
+// 💱 MOTOR DE CONVERSÃO DE MOEDAS (CÂMBIO)
+// ==========================================
+const obterTaxaDeCambio = (moedaOrigem, moedaDestino) => {
+    return new Promise((resolve) => {
+        if (moedaOrigem === moedaDestino) return resolve(1);
+        
+        // Consulta uma API pública e gratuita
+        https.get(`https://api.exchangerate-api.com/v4/latest/${moedaOrigem}`, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    const taxa = json.rates[moedaDestino];
+                    resolve(taxa ? taxa : getTaxaFallback(moedaOrigem, moedaDestino));
+                } catch (e) {
+                    resolve(getTaxaFallback(moedaOrigem, moedaDestino));
+                }
+            });
+        }).on('error', () => resolve(getTaxaFallback(moedaOrigem, moedaDestino)));
+    });
+};
+
+// Tabela de emergência caso a API financeira falhe
+const getTaxaFallback = (de, para) => {
+    const taxas = {
+        'EUR_BRL': 5.45, 'USD_BRL': 5.00, 'GBP_BRL': 6.35,
+        'BRL_EUR': 0.18, 'BRL_USD': 0.20, 'EUR_USD': 1.08, 'USD_EUR': 0.92
+    };
+    return taxas[`${de}_${para}`] || 1;
+};
+
+// ==========================================
 // 📡 ROTAS DE RADARES (FIREBASE)
 // ==========================================
 
 app.get('/api/radares', async (req, res) => {
     try {
         const userId = req.query.userId;
-        let snapshot;
-
-        if (userId) {
-            snapshot = await radaresColl.where('userId', '==', userId).get();
-        } else {
-            snapshot = await radaresColl.get();
-        }
-
+        let snapshot = userId 
+            ? await radaresColl.where('userId', '==', userId).get() 
+            : await radaresColl.get();
         const lista = snapshot.docs.map(doc => ({ id_db: doc.id, ...doc.data() }));
         res.status(200).json(lista);
     } catch (e) { res.status(500).send(e.message); }
@@ -99,9 +128,7 @@ app.post('/api/radares', async (req, res) => {
 app.post('/api/radares/:id/notificado', async (req, res) => {
     try {
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (!snapshot.empty) {
-            await snapshot.docs[0].ref.update({ notificado: true });
-        }
+        if (!snapshot.empty) await snapshot.docs[0].ref.update({ notificado: true });
         res.sendStatus(200);
     } catch (e) { res.status(500).send(e.message); }
 });
@@ -109,9 +136,7 @@ app.post('/api/radares/:id/notificado', async (req, res) => {
 app.delete('/api/radares/:id', async (req, res) => {
     try {
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (!snapshot.empty) {
-            await snapshot.docs[0].ref.delete();
-        }
+        if (!snapshot.empty) await snapshot.docs[0].ref.delete();
         res.status(200).json({ mensagem: 'Radar excluído.' });
     } catch (e) { res.status(500).send(e.message); }
 });
@@ -122,10 +147,7 @@ app.delete('/api/radares/:id', async (req, res) => {
 app.post('/api/pagamento/intencao', async (req, res) => {
   try {
     const { valor, moeda } = req.body;
-
-    if (!valor || !moeda) {
-      return res.status(400).json({ erro: "Valor e moeda são obrigatórios." });
-    }
+    if (!valor || !moeda) return res.status(400).json({ erro: "Valor e moeda são obrigatórios." });
 
     const valorEmCentimos = Math.round(parseFloat(valor) * 100);
 
@@ -133,18 +155,12 @@ app.post('/api/pagamento/intencao', async (req, res) => {
       amount: valorEmCentimos,
       currency: moeda.toLowerCase(),
       automatic_payment_methods: { enabled: true },
-      // 👇 O SEGREDO DO PARCELAMENTO ESTÁ AQUI
       payment_method_options: {
-        card: {
-          installments: {
-            enabled: true, // Força a exibição de opções de parcelamento (ex: Brasil/México)
-          }
-        }
+        card: { installments: { enabled: true } } // Força Parcelamento se a região aceitar
       }
     });
 
     res.json({ clientSecret: paymentIntent.client_secret });
-    
   } catch (error) {
     console.error("Erro ao gerar pagamento no Stripe:", error);
     res.status(500).json({ erro: "Falha ao processar pagamento." });
@@ -157,12 +173,8 @@ app.post('/api/pagamento/intencao', async (req, res) => {
 app.post('/api/radares/:id/emitir', async (req, res) => {
     const { nome, sobrenome, dataNascimento, genero, email, telefone } = req.body;
     try {
-        console.log(`\n🎫 [EMISSÃO] Iniciando processo Go Driver para ID: ${req.params.id}`);
-        
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (snapshot.empty) {
-            return res.status(404).json({ erro: 'Radar não encontrado.' });
-        }
+        if (snapshot.empty) return res.status(404).json({ erro: 'Radar não encontrado.' });
         
         const radarData = snapshot.docs[0].data();
 
@@ -170,14 +182,9 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
             type: 'hold', 
             selected_offers: [radarData.offerId],
             passengers: [{
-                id: radarData.passengerId, 
-                given_name: nome, 
-                family_name: sobrenome,
-                born_on: dataNascimento, 
-                title: genero === 'M' ? 'mr' : 'ms',
-                gender: genero === 'M' ? 'm' : 'f', 
-                email: email, 
-                phone_number: telefone
+                id: radarData.passengerId, given_name: nome, family_name: sobrenome,
+                born_on: dataNascimento, title: genero === 'M' ? 'mr' : 'ms',
+                gender: genero === 'M' ? 'm' : 'f', email: email, phone_number: telefone
             }]
         });
 
@@ -185,11 +192,8 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
         await snapshot.docs[0].ref.update({ status: 'emitido', localizador: pnr });
         await enviarEmailConfirmacao(email, nome, radarData.origem, radarData.destino, pnr);
 
-        console.log(`  ✅ SUCESSO! Localizador Go Driver gerado: ${pnr}`);
         res.status(200).json({ sucesso: true, localizador: pnr });
-
     } catch (error) {
-        console.error(`❌ ERRO NA DUFFEL:`, JSON.stringify(error.errors || error.message, null, 2));
         res.status(500).json({ erro: 'Falha na emissão.', detalhes: error.message });
     }
 });
@@ -233,19 +237,23 @@ const executarBusca = async () => {
 
                 if (offerRequest.data.offers?.length > 0) {
                     const melhor = offerRequest.data.offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))[0];
-                    const precoFinal = parseFloat(melhor.total_amount) + 50;
+                    
+                    // 🌟 A MATEMÁTICA SEGURA DE CÂMBIO 🌟
+                    const moedaDuffel = melhor.total_currency; 
+                    const moedaCliente = radar.codigoMoeda || 'EUR';
+                    
+                    const taxaDeCambio = await obterTaxaDeCambio(moedaDuffel, moedaCliente);
+                    
+                    // Converte o preço da Duffel para a moeda do radar e aplica a taxa de serviço (+50)
+                    const precoConvertido = parseFloat(melhor.total_amount) * taxaDeCambio;
+                    const precoFinal = Math.round((precoConvertido + 50) * 100) / 100;
 
-                    console.log(`  💸 Menor preço achado na Duffel: ${precoFinal}`);
+                    console.log(`  💸 Duffel: ${melhor.total_amount} ${moedaDuffel} | Convertido: ${precoFinal} ${moedaCliente} (Taxa x${taxaDeCambio.toFixed(3)})`);
 
                     if (precoFinal <= precoAlvo) {
-                        
-                        // 🌟 EXTRAINDO OS DADOS PARA O APP FLUTTER
                         const companhiaAerea = melhor.owner.name;
-                        const dataPartidaCrua = melhor.slices[0].segments[0].departing_at;
-                        // Formata a hora para HH:MM
-                        const dataObj = new Date(dataPartidaCrua);
+                        const dataObj = new Date(melhor.slices[0].segments[0].departing_at);
                         const horarioPartida = dataObj.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-                        // Gera um link inteligente para check-in
                         const linkCompanhia = `https://www.google.com/search?q=check-in+online+${companhiaAerea.replace(/ /g, '+')}`;
 
                         await doc.ref.update({
@@ -258,7 +266,7 @@ const executarBusca = async () => {
                             offerId: melhor.id,
                             passengerId: offerRequest.data.passengers[0].id
                         });
-                        console.log(`  🚨 BINGO! Dados salvos (Companhia: ${companhiaAerea}, Hora: ${horarioPartida})`);
+                        console.log(`  🚨 BINGO! Dados salvos com a conversão de câmbio correta.`);
 
                         if (radar.fcmToken) {
                             try {
@@ -266,20 +274,17 @@ const executarBusca = async () => {
                                     token: radar.fcmToken,
                                     notification: {
                                         title: '✈️ Go Driver: Voo Encontrado!',
-                                        body: `Passagem de ${radar.origem} para ${radar.destino} por apenas ${radar.simboloMoeda || ''} ${precoFinal}!`
+                                        body: `Passagem de ${radar.origem} para ${radar.destino} por ${radar.simboloMoeda || ''} ${precoFinal}!`
                                     }
                                 });
-                                console.log(`  📲 Push Notification enviado!`);
-                            } catch (pushErr) {
-                                console.error(`  ⚠️ Erro Push:`, pushErr.message);
-                            }
+                            } catch (pushErr) {}
                         }
                         break; 
                     } else {
-                        console.log(`  ❌ Preço alto. O robô vai continuar depois.`);
+                        console.log(`  ❌ Preço final acima do alvo. O robô vai continuar.`);
                     }
                 } else {
-                    console.log(`  📭 A Duffel não encontrou NENHUM voo para esta data.`);
+                    console.log(`  📭 Nenhum voo encontrado.`);
                 }
             } catch (e) {
                 console.error(`  ⚠️ ERRO NA DUFFEL:`, e.message);
@@ -293,9 +298,8 @@ const executarBusca = async () => {
 // 🚀 INICIALIZAÇÃO E TEMPORIZADOR
 // ==========================================
 const iniciarRobo = () => {
-    console.log("\n🤖 Robô Go Driver ONLINE com Firebase!");
+    console.log("\n🤖 Robô Go Driver ONLINE com Firebase e Motor de Câmbio!");
     executarBusca();
-    // O robô vai rodar exatamente a cada 1 minuto (60.000 ms)
     setInterval(executarBusca, 60000);
 };
 
