@@ -4,8 +4,8 @@ const path = require('path');
 const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin'); // ☁️ Importa Firebase
-const https = require('https'); // 💱 Importado para fazer as consultas de câmbio
+const admin = require('firebase-admin'); //  Importa Firebase
+const https = require('https'); //  Importado para fazer as consultas de câmbio
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -139,6 +139,69 @@ app.delete('/api/radares/:id', async (req, res) => {
         if (!snapshot.empty) await snapshot.docs[0].ref.delete();
         res.status(200).json({ mensagem: 'Radar excluído.' });
     } catch (e) { res.status(500).send(e.message); }
+});
+
+// ==========================================
+// 🏨 ROTAS DE HOTÉIS (Mock de Integração Inicial)
+// ==========================================
+app.get('/api/hoteis/search', async (req, res) => {
+    try {
+        const query = (req.query.q || '').toLowerCase();
+        
+        // Base de dados simulada de hotéis para o Go Driver
+        const bancoDeHoteis = [
+            {
+                id: "htl_lisboa_1",
+                name: "Pestana CR7 Lisboa",
+                city: "Lisboa",
+                stars: 4,
+                rating: "Excelente (4.5)",
+                description: "Nascido da parceria entre o Cristiano Ronaldo e o grupo Pestana, este hotel lifestyle oferece sofisticação, conforto e um ambiente vibrante em plena Baixa Pombalina.",
+                amenities: ["Wifi Grátis", "Ginásio", "Bar", "Pequeno-almoço"],
+                images: [
+                    "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800",
+                    "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800"
+                ]
+            },
+            {
+                id: "htl_porto_1",
+                name: "Vila Galé Porto",
+                city: "Porto",
+                stars: 4,
+                rating: "Muito Bom (4.2)",
+                description: "Localizado no centro do Porto, este hotel destaca-se pelo seu clube de saúde com piscina interior, proporcionando relaxamento total após um dia a explorar a cidade.",
+                amenities: ["Piscina Interior", "Spa", "Restaurante"],
+                images: [
+                    "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800",
+                    "https://images.unsplash.com/photo-1542314831-c6a4d14d885c?w=800"
+                ]
+            },
+            {
+                id: "htl_paris_1",
+                name: "Hôtel Ritz Paris",
+                city: "Paris",
+                stars: 5,
+                rating: "Excecional (4.9)",
+                description: "Um ícone de elegância e luxo, o Ritz Paris oferece vistas deslumbrantes, gastronomia com estrelas Michelin e uma experiência inesquecível na Cidade das Luzes.",
+                amenities: ["Luxo", "Spa", "Piscina", "Aceita Pets"],
+                images: [
+                    "https://images.unsplash.com/photo-1551882547-ff40c0d588fa?w=800",
+                    "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=800"
+                ]
+            }
+        ];
+
+        // Filtra os hotéis pela cidade ou nome que o utilizador digitou no app
+        const resultados = bancoDeHoteis.filter(h => 
+            h.city.toLowerCase().includes(query) || h.name.toLowerCase().includes(query)
+        );
+
+        // Devolve o JSON para o Flutter montar o preview
+        res.status(200).json(resultados);
+    } catch (e) {
+        console.error("Erro na busca de hotéis:", e);
+        res.status(500).json({ erro: "Falha ao buscar hotéis" });
+    }
 });
 
 // ==========================================
