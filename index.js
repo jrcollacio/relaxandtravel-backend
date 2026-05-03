@@ -144,51 +144,80 @@ app.delete('/api/radares/:id', async (req, res) => {
 // ==========================================
 // 🏨 ROTA DE BUSCA REAL DE HOTÉIS (DUFFEL STAYS)
 // ==========================================
+const axios = require('axios'); // Garante que tens o axios instalado: npm install axios
+
 app.get('/api/hoteis/search', async (req, res) => {
     try {
-        const query = req.query.q; // Nome da cidade ou hotel vindo do Flutter
-        if (!query) return res.status(400).json({ erro: "Termo de busca vazio" });
+        const query = req.query.q;
+        const rapidApiKey = 'AQU_VAI_A_TUA_CHAVE_DO_RAPIDAPI'; // 👈 Cola aqui a tua chave
 
-        console.log(`🔎 [Go Driver] Buscando hotéis reais para: ${query}`);
+        if (!query) return res.status(400).json({ erro: "Digite um destino" });
 
-        // 1. Primeiro, precisamos encontrar o ID da cidade/local na Duffel
-        const suggestions = await duffel.stays.searchOptions.list({
-            query: query,
-        });
+        console.log(`🔎 Buscando ID de destino no Booking para: ${query}`);
 
-        if (suggestions.data.length === 0) {
-            return res.status(404).json({ erro: "Localização não encontrada" });
+        // 1. DESCOBRIR O ID DA CIDADE (Destino)
+        const optionsDestino = {
+            method: 'GET',
+            url: 'https://booking-com.p.rapidapi.com/v1/hotels/locations',
+            params: { name: query, locale: 'pt-br' },
+            headers: {
+                'X-RapidAPI-Key': rapidApiKey,
+                'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+            }
+        };
+
+        const responseDestino = await axios.request(optionsDestino);
+        
+        if (!responseDestino.data || responseDestino.data.length === 0) {
+            return res.status(404).json({ erro: "Destino não encontrado" });
         }
 
-        const localId = suggestions.data[0].id; // Pegamos o resultado mais relevante
+        // Pegamos o primeiro ID de cidade encontrado
+        const destId = responseDestino.data[0].dest_id;
+        const destType = responseDestino.data[0].dest_type;
 
-        // 2. Criar uma busca de ofertas (Search)
-        // Nota: Para busca geral, usamos datas padrão (ex: daqui a 30 dias) 
-        // ou as datas que o utilizador enviou.
-        const searchResponse = await duffel.stays.search({
-            location: { id: localId },
-            rooms: 1,
-            guests: [{ type: 'adult' }, { type: 'adult' }], // Padrão 2 adultos
-            check_in_date: "2026-06-10", // Datas de exemplo para a busca inicial
-            check_out_date: "2026-06-15",
-        });
+        console.log(`✅ ID encontrado: ${destId}. Agora buscando hotéis...`);
 
-        // 3. Formatar os resultados para o teu Flutter (Go Driver Style)
-        const hoteisReais = searchResponse.data.results.map(hotel => ({
-            id: hotel.id,
-            name: hotel.name,
-            stars: hotel.rating || 3,
-            rating: hotel.review_score ? `Nota ${hotel.review_score}` : "Novo no Go Driver",
-            description: hotel.description || "Hospedagem selecionada com qualidade Go Driver.",
-            amenities: hotel.amenities?.map(a => a.name) || ["Wifi", "Conforto"],
-            images: hotel.photos?.map(p => p.url) || ["https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800"]
+        // 2. BUSCAR HOTÉIS REAIS NESSE DESTINO
+        const optionsHoteis = {
+            method: 'GET',
+            url: 'https://booking-com.p.rapidapi.com/v1/hotels/search',
+            params: {
+                dest_id: destId,
+                dest_type: destType,
+                checkin_date: '2026-07-10', // Datas padrão para teste
+                checkout_date: '2026-07-15',
+                adults_number: '2',
+                order_by: 'popularity',
+                room_number: '1',
+                units: 'metric',
+                locale: 'pt-br'
+            },
+            headers: {
+                'X-RapidAPI-Key': rapidApiKey,
+                'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+            }
+        };
+
+        const responseHoteis = await axios.request(optionsHoteis);
+        const listaBruta = responseHoteis.data.result || [];
+
+        // 3. FORMATAR PARA O TEU FLUTTER (GO DRIVER STYLE)
+        const hoteisFormatados = listaBruta.map(h => ({
+            id: h.hotel_id.toString(),
+            name: h.hotel_name,
+            stars: Math.round(h.accommodation_type_name === 'Hotel' ? 4 : 3),
+            rating: h.review_score ? h.review_score.toString() : "8.0",
+            description: `Localizado em ${h.address}, ${h.city_trans}. Oferece uma excelente estadia com a garantia Go Driver.`,
+            amenities: ["Wi-fi Grátis", "Ar Condicionado", "Piscina"],
+            images: [h.max_photo_url || "https://via.placeholder.com/400x200"]
         }));
 
-        res.status(200).json(hoteisReais);
+        res.status(200).json(hoteisFormatados);
 
-    } catch (e) {
-        console.error("❌ Erro na Duffel Stays:", e.message);
-        res.status(500).json({ erro: "Falha ao buscar hotéis na rede mundial." });
+    } catch (error) {
+        console.error("❌ Erro na API do Booking:", error.message);
+        res.status(500).json({ erro: "Erro ao buscar hotéis reais." });
     }
 });
 
