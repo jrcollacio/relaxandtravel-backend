@@ -149,7 +149,7 @@ const axios = require('axios'); // Garante que tens o axios instalado: npm insta
 app.get('/api/hoteis/search', async (req, res) => {
     try {
         const query = req.query.q;
-        const rapidApiKey = 'AQU_VAI_A_TUA_CHAVE_DO_RAPIDAPI'; // 👈 Cola aqui a tua chave
+        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // 👈 Cola aqui a tua chave
 
         if (!query) return res.status(400).json({ erro: "Digite um destino" });
 
