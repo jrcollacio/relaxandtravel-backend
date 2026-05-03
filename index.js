@@ -142,65 +142,53 @@ app.delete('/api/radares/:id', async (req, res) => {
 });
 
 // ==========================================
-// 🏨 ROTAS DE HOTÉIS (Mock de Integração Inicial)
+// 🏨 ROTA DE BUSCA REAL DE HOTÉIS (DUFFEL STAYS)
 // ==========================================
 app.get('/api/hoteis/search', async (req, res) => {
     try {
-        const query = (req.query.q || '').toLowerCase();
-        
-        // Base de dados simulada de hotéis para o Go Driver
-        const bancoDeHoteis = [
-            {
-                id: "htl_lisboa_1",
-                name: "Pestana CR7 Lisboa",
-                city: "Lisboa",
-                stars: 4,
-                rating: "Excelente (4.5)",
-                description: "Nascido da parceria entre o Cristiano Ronaldo e o grupo Pestana, este hotel lifestyle oferece sofisticação, conforto e um ambiente vibrante em plena Baixa Pombalina.",
-                amenities: ["Wifi Grátis", "Ginásio", "Bar", "Pequeno-almoço"],
-                images: [
-                    "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800",
-                    "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800"
-                ]
-            },
-            {
-                id: "htl_porto_1",
-                name: "Vila Galé Porto",
-                city: "Porto",
-                stars: 4,
-                rating: "Muito Bom (4.2)",
-                description: "Localizado no centro do Porto, este hotel destaca-se pelo seu clube de saúde com piscina interior, proporcionando relaxamento total após um dia a explorar a cidade.",
-                amenities: ["Piscina Interior", "Spa", "Restaurante"],
-                images: [
-                    "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800",
-                    "https://images.unsplash.com/photo-1542314831-c6a4d14d885c?w=800"
-                ]
-            },
-            {
-                id: "htl_paris_1",
-                name: "Hôtel Ritz Paris",
-                city: "Paris",
-                stars: 5,
-                rating: "Excecional (4.9)",
-                description: "Um ícone de elegância e luxo, o Ritz Paris oferece vistas deslumbrantes, gastronomia com estrelas Michelin e uma experiência inesquecível na Cidade das Luzes.",
-                amenities: ["Luxo", "Spa", "Piscina", "Aceita Pets"],
-                images: [
-                    "https://images.unsplash.com/photo-1551882547-ff40c0d588fa?w=800",
-                    "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=800"
-                ]
-            }
-        ];
+        const query = req.query.q; // Nome da cidade ou hotel vindo do Flutter
+        if (!query) return res.status(400).json({ erro: "Termo de busca vazio" });
 
-        // Filtra os hotéis pela cidade ou nome que o utilizador digitou no app
-        const resultados = bancoDeHoteis.filter(h => 
-            h.city.toLowerCase().includes(query) || h.name.toLowerCase().includes(query)
-        );
+        console.log(`🔎 [Go Driver] Buscando hotéis reais para: ${query}`);
 
-        // Devolve o JSON para o Flutter montar o preview
-        res.status(200).json(resultados);
+        // 1. Primeiro, precisamos encontrar o ID da cidade/local na Duffel
+        const suggestions = await duffel.stays.searchOptions.list({
+            query: query,
+        });
+
+        if (suggestions.data.length === 0) {
+            return res.status(404).json({ erro: "Localização não encontrada" });
+        }
+
+        const localId = suggestions.data[0].id; // Pegamos o resultado mais relevante
+
+        // 2. Criar uma busca de ofertas (Search)
+        // Nota: Para busca geral, usamos datas padrão (ex: daqui a 30 dias) 
+        // ou as datas que o utilizador enviou.
+        const searchResponse = await duffel.stays.search({
+            location: { id: localId },
+            rooms: 1,
+            guests: [{ type: 'adult' }, { type: 'adult' }], // Padrão 2 adultos
+            check_in_date: "2026-06-10", // Datas de exemplo para a busca inicial
+            check_out_date: "2026-06-15",
+        });
+
+        // 3. Formatar os resultados para o teu Flutter (Go Driver Style)
+        const hoteisReais = searchResponse.data.results.map(hotel => ({
+            id: hotel.id,
+            name: hotel.name,
+            stars: hotel.rating || 3,
+            rating: hotel.review_score ? `Nota ${hotel.review_score}` : "Novo no Go Driver",
+            description: hotel.description || "Hospedagem selecionada com qualidade Go Driver.",
+            amenities: hotel.amenities?.map(a => a.name) || ["Wifi", "Conforto"],
+            images: hotel.photos?.map(p => p.url) || ["https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800"]
+        }));
+
+        res.status(200).json(hoteisReais);
+
     } catch (e) {
-        console.error("Erro na busca de hotéis:", e);
-        res.status(500).json({ erro: "Falha ao buscar hotéis" });
+        console.error("❌ Erro na Duffel Stays:", e.message);
+        res.status(500).json({ erro: "Falha ao buscar hotéis na rede mundial." });
     }
 });
 
