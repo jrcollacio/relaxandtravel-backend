@@ -142,24 +142,24 @@ app.delete('/api/radares/:id', async (req, res) => {
 });
 
 // ==========================================
-// 🏨 ROTA DE BUSCA REAL DE HOTÉIS (DUFFEL STAYS)
+// 🏨 ROTA DE BUSCA REAL DE HOTÉIS (RAPIDAPI BOOKING)
 // ==========================================
 const axios = require('axios'); 
 
 app.get('/api/hoteis/search', async (req, res) => {
     try {
         const query = req.query.q;
-        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // 👈 Cola aqui a tua chave
+        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
 
         if (!query) return res.status(400).json({ erro: "Digite um destino" });
 
         console.log(`🔎 Buscando ID de destino no Booking para: ${query}`);
 
-        // 1. DESCOBRIR O ID DA CIDADE (Destino)
+        // 1. DESCOBRIR O ID DA CIDADE (Sintaxe correta da API Tipsters)
         const optionsDestino = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/locations',
-            params: { name: query, locale: 'pt-br' },
+            params: { units: 'metric', name: query, locale: 'pt-br' },
             headers: {
                 'X-RapidAPI-Key': rapidApiKey,
                 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
@@ -172,26 +172,28 @@ app.get('/api/hoteis/search', async (req, res) => {
             return res.status(404).json({ erro: "Destino não encontrado" });
         }
 
-        // Pegamos o primeiro ID de cidade encontrado
-        const destId = responseDestino.data[0].dest_id;
-        const destType = responseDestino.data[0].dest_type;
+        // 2. EXTRAIR DADOS DE FORMA SEGURA (Evitar crash se a API mudar algo)
+        const local = responseDestino.data[0];
+        const destId = local.dest_id;
+        const destType = local.dest_type;
 
-        console.log(`✅ ID encontrado: ${destId}. Agora buscando hotéis...`);
+        console.log(`✅ ID encontrado: ${destId} (${destType}). Buscando hotéis...`);
 
-        // 2. BUSCAR HOTÉIS REAIS NESSE DESTINO
+        // 3. BUSCAR HOTÉIS REAIS NESSE DESTINO (Sintaxe Tipsters)
         const optionsHoteis = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/search',
             params: {
-                dest_id: destId,
+                checkin_date: '2026-07-10', // Mantém fixo para teste base
                 dest_type: destType,
-                checkin_date: '2026-07-10', // Datas padrão para teste
+                units: 'metric',
                 checkout_date: '2026-07-15',
                 adults_number: '2',
                 order_by: 'popularity',
-                room_number: '1',
-                units: 'metric',
-                locale: 'pt-br'
+                dest_id: destId,
+                filter_by_currency: 'EUR',
+                locale: 'pt-br',
+                room_number: '1'
             },
             headers: {
                 'X-RapidAPI-Key': rapidApiKey,
@@ -202,21 +204,29 @@ app.get('/api/hoteis/search', async (req, res) => {
         const responseHoteis = await axios.request(optionsHoteis);
         const listaBruta = responseHoteis.data.result || [];
 
-        // 3. FORMATAR PARA O TEU FLUTTER (GO DRIVER STYLE)
-        const hoteisFormatados = listaBruta.map(h => ({
-            id: h.hotel_id.toString(),
-            name: h.hotel_name,
-            stars: Math.round(h.accommodation_type_name === 'Hotel' ? 4 : 3),
-            rating: h.review_score ? h.review_score.toString() : "8.0",
-            description: `Localizado em ${h.address}, ${h.city_trans}. Oferece uma excelente estadia com a garantia Go Driver.`,
-            amenities: ["Wi-fi Grátis", "Ar Condicionado", "Piscina"],
-            images: [h.max_photo_url || "https://via.placeholder.com/400x200"]
-        }));
+        // 4. FORMATAR PARA O FLUTTER DE FORMA "À PROVA DE BALAS"
+        const hoteisFormatados = listaBruta.map(h => {
+            // A API tipsters às vezes envia valores estranhos, isto protege a app:
+            const foto = (h.max_photo_url && typeof h.max_photo_url === 'string') ? h.max_photo_url : "https://via.placeholder.com/400x200";
+            const idHotel = h.hotel_id ? h.hotel_id.toString() : Math.random().toString();
+            
+            return {
+                id: idHotel,
+                name: h.hotel_name || "Hotel sem Nome",
+                stars: h.class || 3, // Pega as estrelas reais do hotel
+                rating: h.review_score ? h.review_score.toString() : "8.0",
+                description: `Localizado a ${h.distance_to_cc || '?'}km do centro. ${h.address ? h.address : ''}`,
+                amenities: ["Wi-fi", "Conforto", "Avaliação: " + (h.review_score_word || 'Boa')],
+                images: [foto]
+            };
+        });
 
         res.status(200).json(hoteisFormatados);
 
     } catch (error) {
-        console.error("❌ Erro na API do Booking:", error.message);
+        // Agora vamos ver o erro REAL nos logs se falhar
+        const detalheErro = error.response ? error.response.data : error.message;
+        console.error("❌ ERRO DETALHADO NO BOOKING:", detalheErro);
         res.status(500).json({ erro: "Erro ao buscar hotéis reais." });
     }
 });
