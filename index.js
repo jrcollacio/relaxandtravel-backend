@@ -4,8 +4,8 @@ const path = require('path');
 const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin'); //  Importa Firebase
-const https = require('https'); //  Importado para fazer as consultas de câmbio
+const admin = require('firebase-admin'); // Importa Firebase
+const https = require('https'); // Importado para fazer as consultas de câmbio
 const axios = require('axios'); // Para a API do Booking
 
 const app = express();
@@ -28,7 +28,7 @@ const radaresColl = db.collection('radares');
 // ==========================================
 const duffel = new Duffel({ token: 'duffel_test_nALMdAdvl5V37UC6y1Hm3-kjzqQ9zfjWDrF3GUd_-5R' });
 const stripe = Stripe('sk_test_51TOq1MJ2bakKpaKf3M3IXIVyeOTHWxQcV0lC0yGiLtxU5XbSXa1Q0Mm0ZJRVNiFcbFPBnebEp5AXJcAVHw1LTfxy00Hpd3NtXj'); 
-const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // Tornamos global para o Robô usar
+const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // Chave global para o Robô usar
 
 app.use(cors());
 app.use(express.json());
@@ -53,7 +53,7 @@ const enviarEmailConfirmacao = async (emailCliente, nome, origem, destino, pnr) 
             <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 10px;">
                 <h2 style="color: #4A00E0; text-align: center;">Viagem Confirmada! 🎉</h2>
                 <p>Olá, <strong>${nome}</strong>!</p>
-                <p>O seu pagamento foi aprovado pelo Go Driver e a sua passagem está garantida.</p>
+                <p>O seu pagamento foi aprovado pelo Go Driver e a sua reserva está garantida.</p>
                 <div style="background-color: #f4f6f9; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 5px solid #4A00E0;">
                     <p>🛫 <strong>Origem:</strong> ${origem} | 🛬 <strong>Destino:</strong> ${destino}</p>
                     <p style="font-size: 18px; margin-top: 15px;">🎟️ <strong>Localizador (PNR):</strong> <span style="color: #4A00E0; font-weight: bold; font-size: 22px;">${pnr}</span></p>
@@ -70,7 +70,9 @@ const enviarEmailConfirmacao = async (emailCliente, nome, origem, destino, pnr) 
 // ==========================================
 const obterTaxaDeCambio = (moedaOrigem, moedaDestino) => {
     return new Promise((resolve) => {
-        if (moedaOrigem === moedaDestino) return resolve(1);
+        if (moedaOrigem === moedaDestino) {
+            return resolve(1);
+        }
         
         // Consulta uma API pública e gratuita
         https.get(`https://api.exchangerate-api.com/v4/latest/${moedaOrigem}`, (res) => {
@@ -105,12 +107,19 @@ const getTaxaFallback = (de, para) => {
 app.get('/api/radares', async (req, res) => {
     try {
         const userId = req.query.userId;
-        let snapshot = userId 
-            ? await radaresColl.where('userId', '==', userId).get() 
-            : await radaresColl.get();
+        let snapshot;
+        
+        if (userId) {
+            snapshot = await radaresColl.where('userId', '==', userId).get();
+        } else {
+            snapshot = await radaresColl.get();
+        }
+        
         const lista = snapshot.docs.map(doc => ({ id_db: doc.id, ...doc.data() }));
         res.status(200).json(lista);
-    } catch (e) { res.status(500).send(e.message); }
+    } catch (e) { 
+        res.status(500).send(e.message); 
+    }
 });
 
 app.post('/api/radares', async (req, res) => {
@@ -124,23 +133,61 @@ app.post('/api/radares', async (req, res) => {
         };
         const docRef = await radaresColl.add(novoRadar);
         res.status(201).json({ id_db: docRef.id, ...novoRadar });
-    } catch (e) { res.status(500).send(e.message); }
+    } catch (e) { 
+        res.status(500).send(e.message); 
+    }
 });
 
 app.post('/api/radares/:id/notificado', async (req, res) => {
     try {
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (!snapshot.empty) await snapshot.docs[0].ref.update({ notificado: true });
+        if (!snapshot.empty) {
+            await snapshot.docs[0].ref.update({ notificado: true });
+        }
         res.sendStatus(200);
-    } catch (e) { res.status(500).send(e.message); }
+    } catch (e) { 
+        res.status(500).send(e.message); 
+    }
 });
 
 app.delete('/api/radares/:id', async (req, res) => {
     try {
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (!snapshot.empty) await snapshot.docs[0].ref.delete();
+        if (!snapshot.empty) {
+            await snapshot.docs[0].ref.delete();
+        }
         res.status(200).json({ mensagem: 'Radar excluído.' });
-    } catch (e) { res.status(500).send(e.message); }
+    } catch (e) { 
+        res.status(500).send(e.message); 
+    }
+});
+
+// ==========================================
+// 🛫 ROTA DE BUSCA DE AEROPORTOS (DUFFEL) - NOVA ROTA
+// ==========================================
+app.get('/api/aeroportos/search', async (req, res) => {
+    try {
+        const query = req.query.q;
+        if (!query || query.length < 2) {
+            return res.status(200).json([]);
+        }
+        
+        const places = await duffel.suggestions.list({ query: query });
+        
+        // Filtra para garantir que apenas devolve locais com código IATA válido
+        const aeroportos = places.data
+            .filter(p => p.iata_code != null)
+            .map(p => ({
+                iata: p.iata_code,
+                nome: p.name,
+                cidade: p.city_name || p.name
+            }));
+        
+        res.status(200).json(aeroportos);
+    } catch (error) {
+        console.error("❌ ERRO AO BUSCAR AEROPORTOS:", error.message);
+        res.status(200).json([]); 
+    }
 });
 
 // ==========================================
@@ -150,7 +197,9 @@ app.get('/api/hoteis/search', async (req, res) => {
     try {
         const query = req.query.q;
 
-        if (!query) return res.status(400).json({ erro: "Digite um destino" });
+        if (!query) {
+            return res.status(400).json({ erro: "Digite um destino" });
+        }
 
         console.log(`🔎 Buscando ID de destino no Booking para: ${query}`);
 
@@ -232,7 +281,7 @@ app.get('/api/hoteis/search', async (req, res) => {
 });
 
 // ==========================================
-// 📸 NOVA ROTA DE FOTOS DO HOTEL (RAPIDAPI)
+// 📸 ROTA DE FOTOS DO HOTEL (RAPIDAPI)
 // ==========================================
 app.get('/api/hoteis/:id/fotos', async (req, res) => {
     try {
@@ -251,6 +300,7 @@ app.get('/api/hoteis/:id/fotos', async (req, res) => {
         const response = await axios.request(options);
         const fotosBrutas = response.data || [];
         
+        // Pega as fotos em alta resolução (15 fotos no máximo para ser super rápido)
         const fotos = fotosBrutas.map(f => f.url_max || f.url_1440 || f.url_square60).filter(f => f != null);
 
         res.status(200).json(fotos.slice(0, 15));
@@ -266,7 +316,9 @@ app.get('/api/hoteis/:id/fotos', async (req, res) => {
 app.post('/api/pagamento/intencao', async (req, res) => {
   try {
     const { valor, moeda } = req.body;
-    if (!valor || !moeda) return res.status(400).json({ erro: "Valor e moeda são obrigatórios." });
+    if (!valor || !moeda) {
+        return res.status(400).json({ erro: "Valor e moeda são obrigatórios." });
+    }
 
     const valorEmCentimos = Math.round(parseFloat(valor) * 100);
 
@@ -293,7 +345,10 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
     const { nome, sobrenome, dataNascimento, genero, email, telefone } = req.body;
     try {
         const snapshot = await radaresColl.where('id', '==', req.params.id).get();
-        if (snapshot.empty) return res.status(404).json({ erro: 'Radar não encontrado.' });
+        
+        if (snapshot.empty) {
+            return res.status(404).json({ erro: 'Radar não encontrado.' });
+        }
         
         const radarData = snapshot.docs[0].data();
 
@@ -301,9 +356,14 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
             type: 'hold', 
             selected_offers: [radarData.offerId],
             passengers: [{
-                id: radarData.passengerId, given_name: nome, family_name: sobrenome,
-                born_on: dataNascimento, title: genero === 'M' ? 'mr' : 'ms',
-                gender: genero === 'M' ? 'm' : 'f', email: email, phone_number: telefone
+                id: radarData.passengerId, 
+                given_name: nome, 
+                family_name: sobrenome,
+                born_on: dataNascimento, 
+                title: genero === 'M' ? 'mr' : 'ms',
+                gender: genero === 'M' ? 'm' : 'f', 
+                email: email, 
+                phone_number: telefone
             }]
         });
 
@@ -323,7 +383,8 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
 const gerarDatasDeBusca = (dias = 180) => {
     const datas = [];
     for (let i = 1; i <= dias; i++) {
-        const d = new Date(); d.setDate(d.getDate() + i);
+        const d = new Date(); 
+        d.setDate(d.getDate() + i);
         datas.push(d.toISOString().split('T')[0]); 
     }
     return datas;
@@ -331,18 +392,21 @@ const gerarDatasDeBusca = (dias = 180) => {
 
 const executarBusca = async () => {
     const snapshot = await radaresColl.where('status', '==', 'buscando').get();
-    if (snapshot.empty) return console.log("☁️ [Go Driver] Sem radares ativos para buscar.");
+    
+    if (snapshot.empty) {
+        return; // Não envia console.log para não sujar o terminal desnecessariamente
+    }
 
     console.log(`\n🔄 CÉREBRO ATIVO: Analisando ${snapshot.size} radares ativos...`);
 
     for (let doc of snapshot.docs) {
         let radar = doc.data();
-        let tipo = radar.tipoRadar || 'voo'; // Se for antigo, assume que é voo
+        let tipo = radar.tipoRadar || 'voo'; // Se for um radar antigo, assume que é voo
         
         const precoAlvo = parseFloat(radar.preco.toString().replace(',', '.'));
         const moedaBase = radar.codigoMoeda || 'EUR';
 
-        // Logica de datas (Proteção para radares flexíveis)
+        // Lógica de datas (Proteção para radares flexíveis)
         let dtCheckin = radar.checkin || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         let dtCheckout = radar.checkout || new Date(Date.now() + 35 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         let dVooSoIda = radar.data !== 'Qualquer Data' && !radar.data.includes('Entre') ? radar.data.split('/').reverse().join('-') : dtCheckin;
@@ -355,12 +419,15 @@ const executarBusca = async () => {
             try {
                 const reqVoo = await duffel.offerRequests.create({
                     slices: [{ origin: radar.origem, destination: radar.destino, departure_date: dVooSoIda }],
-                    passengers: [{ type: 'adult' }], cabin_class: 'economy', return_offers: true
+                    passengers: [{ type: 'adult' }], 
+                    cabin_class: 'economy', 
+                    return_offers: true
                 });
 
                 if (reqVoo.data.offers?.length > 0) {
                     const melhor = reqVoo.data.offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))[0];
                     const taxa = await obterTaxaDeCambio(melhor.total_currency, moedaBase);
+                    
                     const precoConvertido = parseFloat(melhor.total_amount) * taxa;
                     const precoFinal = Math.round((precoConvertido + 50) * 100) / 100;
 
@@ -394,10 +461,11 @@ const executarBusca = async () => {
         // RAMIFICAÇÃO 2: APENAS HOTEL
         // ---------------------------------------------------------
         else if (tipo === 'hotel') {
-            console.log(`\n🔎 [ROBÔ HOTEL] Destino: ${radar.destino} | Alvo: ${precoAlvo} ${moedaBase}`);
+            const cidadeBusca = radar.nomeDestino || radar.destino; // Usa a cidade se existir, senão usa o destino original
+            console.log(`\n🔎 [ROBÔ HOTEL] Cidade: ${cidadeBusca} | Alvo: ${precoAlvo} ${moedaBase}`);
             try {
                 const rLocal = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
-                    params: { name: radar.destino, locale: 'pt-br' }, 
+                    params: { name: cidadeBusca, locale: 'pt-br' }, 
                     headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
                 });
                 
@@ -407,10 +475,15 @@ const executarBusca = async () => {
 
                     const rHotel = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/search', {
                         params: { 
-                            checkin_date: dtCheckin, checkout_date: dtCheckout, 
-                            dest_type: local.dest_type, dest_id: local.dest_id, 
-                            adults_number: qtdAdultos, filter_by_currency: moedaBase, 
-                            order_by: 'price', units: 'metric', locale: 'pt-br' 
+                            checkin_date: dtCheckin, 
+                            checkout_date: dtCheckout, 
+                            dest_type: local.dest_type, 
+                            dest_id: local.dest_id, 
+                            adults_number: qtdAdultos, 
+                            filter_by_currency: moedaBase, 
+                            order_by: 'price', 
+                            units: 'metric', 
+                            locale: 'pt-br' 
                         },
                         headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
                     });
@@ -440,7 +513,7 @@ const executarBusca = async () => {
         else if (tipo === 'pacote') {
             console.log(`\n🔎 [ROBÔ PACOTE] ${radar.origem} ➔ ${radar.destino} | Alvo Total: ${precoAlvo} ${moedaBase}`);
             try {
-                // Passo A: Tentar o Voo de IDA e VOLTA
+                // Passo A: Tentar o Voo de IDA e VOLTA (Duffel usa códigos IATA gravados na origem/destino)
                 const qtdPassageiros = radar.adultos ? parseInt(radar.adultos) : 2;
                 const passageirosArray = Array(qtdPassageiros).fill({ type: 'adult' });
 
@@ -449,7 +522,9 @@ const executarBusca = async () => {
                         { origin: radar.origem, destination: radar.destino, departure_date: dtCheckin },
                         { origin: radar.destino, destination: radar.origem, departure_date: dtCheckout }
                     ],
-                    passengers: passageirosArray, cabin_class: 'economy', return_offers: true
+                    passengers: passageirosArray, 
+                    cabin_class: 'economy', 
+                    return_offers: true
                 });
 
                 if (reqPacoteVoo.data.offers?.length > 0) {
@@ -461,19 +536,27 @@ const executarBusca = async () => {
 
                     // Passo B: Se o voo couber no orçamento, vamos procurar o Hotel
                     if (precoVooConvertido < precoAlvo) {
+                        const cidadeBusca = radar.nomeDestino || radar.destino;
+                        
                         const rLoc = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
-                            params: { name: radar.destino, locale: 'pt-br' }, 
+                            params: { name: cidadeBusca, locale: 'pt-br' }, 
                             headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
                         });
                         
                         if (rLoc.data && rLoc.data.length > 0) {
                             const local = rLoc.data[0];
+                            
                             const rHot = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/search', {
                                 params: { 
-                                    checkin_date: dtCheckin, checkout_date: dtCheckout, 
-                                    dest_type: local.dest_type, dest_id: local.dest_id, 
-                                    adults_number: qtdPassageiros.toString(), filter_by_currency: moedaBase, 
-                                    order_by: 'price', units: 'metric', locale: 'pt-br' 
+                                    checkin_date: dtCheckin, 
+                                    checkout_date: dtCheckout, 
+                                    dest_type: local.dest_type, 
+                                    dest_id: local.dest_id, 
+                                    adults_number: qtdPassageiros.toString(), 
+                                    filter_by_currency: moedaBase, 
+                                    order_by: 'price', 
+                                    units: 'metric', 
+                                    locale: 'pt-br' 
                                 },
                                 headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
                             });
@@ -502,7 +585,9 @@ const executarBusca = async () => {
                                 } else { 
                                     console.log(`  ❌ Preço final (${precoTotal}) acima do alvo (${precoAlvo}).`); 
                                 }
-                            } else { console.log(`  📭 Não foi possível encontrar hotéis baratos o suficiente.`); }
+                            } else { 
+                                console.log(`  📭 Não foi possível encontrar hotéis baratos o suficiente.`); 
+                            }
                         }
                     } else { 
                         console.log(`  ❌ O Voo sozinho já esgotou ou ultrapassou o orçamento. Pesquisa de hotel ignorada.`); 
