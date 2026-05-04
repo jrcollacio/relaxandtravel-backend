@@ -4,8 +4,8 @@ const path = require('path');
 const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin'); //  Importa Firebase
-const https = require('https'); //  Importado para fazer as consultas de câmbio
+const admin = require('firebase-admin'); //  Importa Firebase
+const https = require('https'); //  Importado para fazer as consultas de câmbio
 const axios = require('axios'); // Para a API do Booking
 
 const app = express();
@@ -28,6 +28,7 @@ const radaresColl = db.collection('radares');
 // ==========================================
 const duffel = new Duffel({ token: 'duffel_test_nALMdAdvl5V37UC6y1Hm3-kjzqQ9zfjWDrF3GUd_-5R' });
 const stripe = Stripe('sk_test_51TOq1MJ2bakKpaKf3M3IXIVyeOTHWxQcV0lC0yGiLtxU5XbSXa1Q0Mm0ZJRVNiFcbFPBnebEp5AXJcAVHw1LTfxy00Hpd3NtXj'); 
+const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // Tornamos global para o Robô usar
 
 app.use(cors());
 app.use(express.json());
@@ -148,7 +149,6 @@ app.delete('/api/radares/:id', async (req, res) => {
 app.get('/api/hoteis/search', async (req, res) => {
     try {
         const query = req.query.q;
-        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
 
         if (!query) return res.status(400).json({ erro: "Digite um destino" });
 
@@ -182,7 +182,7 @@ app.get('/api/hoteis/search', async (req, res) => {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/search',
             params: {
-                checkin_date: '2026-07-10', // Padrão de teste
+                checkin_date: '2026-07-10', // Padrão de teste visual
                 dest_type: destType,
                 units: 'metric',
                 checkout_date: '2026-07-15',
@@ -207,7 +207,6 @@ app.get('/api/hoteis/search', async (req, res) => {
             const foto = (h.max_photo_url && typeof h.max_photo_url === 'string') ? h.max_photo_url : "https://via.placeholder.com/400x200";
             const idHotel = h.hotel_id ? h.hotel_id.toString() : Math.random().toString();
             
-            // Dados ricos para a nova Janela de Detalhes
             const preco = h.min_total_price ? `Preço Base de Referência: ${h.currencycode} ${h.min_total_price}` : '';
             const qualidade = h.review_score_word ? `${h.review_score_word}` : 'Bom';
             const morada = h.address ? h.address : 'Centro da cidade';
@@ -238,7 +237,6 @@ app.get('/api/hoteis/search', async (req, res) => {
 app.get('/api/hoteis/:id/fotos', async (req, res) => {
     try {
         const hotelId = req.params.id;
-        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
 
         const options = {
             method: 'GET',
@@ -253,13 +251,12 @@ app.get('/api/hoteis/:id/fotos', async (req, res) => {
         const response = await axios.request(options);
         const fotosBrutas = response.data || [];
         
-        // Pega as fotos em alta resolução (15 fotos no máximo para ser super rápido)
         const fotos = fotosBrutas.map(f => f.url_max || f.url_1440 || f.url_square60).filter(f => f != null);
 
         res.status(200).json(fotos.slice(0, 15));
     } catch (error) {
         console.error("❌ ERRO AO BUSCAR FOTOS:", error.message);
-        res.status(200).json([]); // Retorna vazio em caso de erro, para a app não crashar
+        res.status(200).json([]); 
     }
 });
 
@@ -321,7 +318,7 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
 });
 
 // ==========================================
-// 🤖 ROBÔ DE VARREDURA - GO DRIVER
+// 🤖 O NOVO CÉREBRO TRIPLO DO GO DRIVER
 // ==========================================
 const gerarDatasDeBusca = (dias = 180) => {
     const datas = [];
@@ -336,41 +333,38 @@ const executarBusca = async () => {
     const snapshot = await radaresColl.where('status', '==', 'buscando').get();
     if (snapshot.empty) return console.log("☁️ [Go Driver] Sem radares ativos para buscar.");
 
-    console.log(`\n🔄 Varredura em ${snapshot.size} radares ativos...`);
+    console.log(`\n🔄 CÉREBRO ATIVO: Analisando ${snapshot.size} radares ativos...`);
 
     for (let doc of snapshot.docs) {
         let radar = doc.data();
-        console.log(`\n🔎 [ROBÔ] Analisando radar: ${radar.origem} ➔ ${radar.destino}`);
+        let tipo = radar.tipoRadar || 'voo'; // Se for antigo, assume que é voo
         
         const precoAlvo = parseFloat(radar.preco.toString().replace(',', '.'));
-        console.log(`  🎯 Alvo do cliente: Abaixo de ${radar.simboloMoeda || ''} ${precoAlvo}`);
+        const moedaBase = radar.codigoMoeda || 'EUR';
 
-        let datasParaTestar = radar.data === 'Qualquer Data' 
-            ? gerarDatasDeBusca(180).sort(() => 0.5 - Math.random()).slice(0, 2)
-            : [radar.data.split('/').reverse().join('-')];
+        // Logica de datas (Proteção para radares flexíveis)
+        let dtCheckin = radar.checkin || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        let dtCheckout = radar.checkout || new Date(Date.now() + 35 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        let dVooSoIda = radar.data !== 'Qualquer Data' && !radar.data.includes('Entre') ? radar.data.split('/').reverse().join('-') : dtCheckin;
 
-        for (let dataF of datasParaTestar) {
-            console.log(`  ⏳ Testando a data: ${dataF}...`);
+        // ---------------------------------------------------------
+        // RAMIFICAÇÃO 1: APENAS VOO
+        // ---------------------------------------------------------
+        if (tipo === 'voo') {
+            console.log(`\n🔎 [ROBÔ VOO] ${radar.origem} ➔ ${radar.destino} | Alvo: ${precoAlvo} ${moedaBase}`);
             try {
-                const offerRequest = await duffel.offerRequests.create({
-                    slices: [{ origin: radar.origem, destination: radar.destino, departure_date: dataF }],
+                const reqVoo = await duffel.offerRequests.create({
+                    slices: [{ origin: radar.origem, destination: radar.destino, departure_date: dVooSoIda }],
                     passengers: [{ type: 'adult' }], cabin_class: 'economy', return_offers: true
                 });
 
-                if (offerRequest.data.offers?.length > 0) {
-                    const melhor = offerRequest.data.offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))[0];
-                    
-                    // 🌟 A MATEMÁTICA SEGURA DE CÂMBIO 🌟
-                    const moedaDuffel = melhor.total_currency; 
-                    const moedaCliente = radar.codigoMoeda || 'EUR';
-                    
-                    const taxaDeCambio = await obterTaxaDeCambio(moedaDuffel, moedaCliente);
-                    
-                    // Converte o preço da Duffel para a moeda do radar e aplica a taxa de serviço (+50)
-                    const precoConvertido = parseFloat(melhor.total_amount) * taxaDeCambio;
+                if (reqVoo.data.offers?.length > 0) {
+                    const melhor = reqVoo.data.offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))[0];
+                    const taxa = await obterTaxaDeCambio(melhor.total_currency, moedaBase);
+                    const precoConvertido = parseFloat(melhor.total_amount) * taxa;
                     const precoFinal = Math.round((precoConvertido + 50) * 100) / 100;
 
-                    console.log(`  💸 Duffel: ${melhor.total_amount} ${moedaDuffel} | Convertido: ${precoFinal} ${moedaCliente} (Taxa x${taxaDeCambio.toFixed(3)})`);
+                    console.log(`  ✈️ Duffel achou por ${precoFinal} ${moedaBase}`);
 
                     if (precoFinal <= precoAlvo) {
                         const companhiaAerea = melhor.owner.name;
@@ -381,38 +375,148 @@ const executarBusca = async () => {
                         await doc.ref.update({
                             status: 'encontrado',
                             precoEncontrado: precoFinal,
-                            dataVoo: dataF.split('-').reverse().join('/'),
+                            dataVoo: dVooSoIda.split('-').reverse().join('/'),
                             horario: horarioPartida,
                             companhia: companhiaAerea,
                             linkOriginal: linkCompanhia,
                             offerId: melhor.id,
-                            passengerId: offerRequest.data.passengers[0].id
+                            passengerId: reqVoo.data.passengers[0].id
                         });
-                        console.log(`  🚨 BINGO! Dados salvos com a conversão de câmbio correta.`);
-
-                        if (radar.fcmToken) {
-                            try {
-                                await admin.messaging().send({
-                                    token: radar.fcmToken,
-                                    notification: {
-                                        title: '✈️ Go Driver: Voo Encontrado!',
-                                        body: `Passagem de ${radar.origem} para ${radar.destino} por ${radar.simboloMoeda || ''} ${precoFinal}!`
-                                    }
-                                });
-                            } catch (pushErr) {}
-                        }
-                        break; 
-                    } else {
-                        console.log(`  ❌ Preço final acima do alvo. O robô vai continuar.`);
+                        console.log(`  🚨 BINGO VOO! Dados atualizados.`);
                     }
-                } else {
-                    console.log(`  📭 Nenhum voo encontrado.`);
                 }
             } catch (e) {
-                console.error(`  ⚠️ ERRO NA DUFFEL:`, e.message);
+                console.error(`  ⚠️ Erro na Duffel:`, e.message);
             }
-            await new Promise(r => setTimeout(r, 2000)); 
         }
+
+        // ---------------------------------------------------------
+        // RAMIFICAÇÃO 2: APENAS HOTEL
+        // ---------------------------------------------------------
+        else if (tipo === 'hotel') {
+            console.log(`\n🔎 [ROBÔ HOTEL] Destino: ${radar.destino} | Alvo: ${precoAlvo} ${moedaBase}`);
+            try {
+                const rLocal = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
+                    params: { name: radar.destino, locale: 'pt-br' }, 
+                    headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
+                });
+                
+                if (rLocal.data && rLocal.data.length > 0) {
+                    const local = rLocal.data[0];
+                    const qtdAdultos = radar.adultos ? radar.adultos.toString() : '2';
+
+                    const rHotel = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/search', {
+                        params: { 
+                            checkin_date: dtCheckin, checkout_date: dtCheckout, 
+                            dest_type: local.dest_type, dest_id: local.dest_id, 
+                            adults_number: qtdAdultos, filter_by_currency: moedaBase, 
+                            order_by: 'price', units: 'metric', locale: 'pt-br' 
+                        },
+                        headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
+                    });
+
+                    if (rHotel.data.result?.length > 0) {
+                        const hotelBase = rHotel.data.result[0];
+                        console.log(`  🏨 Booking achou: ${hotelBase.hotel_name} por ${hotelBase.min_total_price} ${moedaBase}`);
+                        
+                        if (hotelBase.min_total_price <= precoAlvo) {
+                            await doc.ref.update({ 
+                                status: 'encontrado', 
+                                precoEncontrado: hotelBase.min_total_price, 
+                                nomeHotel: hotelBase.hotel_name 
+                            });
+                            console.log(`  🚨 BINGO HOTEL! Dados salvos.`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`  ⚠️ Erro no Booking:`, e.message);
+            }
+        }
+
+        // ---------------------------------------------------------
+        // RAMIFICAÇÃO 3: PACOTE (VOO + HOTEL)
+        // ---------------------------------------------------------
+        else if (tipo === 'pacote') {
+            console.log(`\n🔎 [ROBÔ PACOTE] ${radar.origem} ➔ ${radar.destino} | Alvo Total: ${precoAlvo} ${moedaBase}`);
+            try {
+                // Passo A: Tentar o Voo de IDA e VOLTA
+                const qtdPassageiros = radar.adultos ? parseInt(radar.adultos) : 2;
+                const passageirosArray = Array(qtdPassageiros).fill({ type: 'adult' });
+
+                const reqPacoteVoo = await duffel.offerRequests.create({
+                    slices: [
+                        { origin: radar.origem, destination: radar.destino, departure_date: dtCheckin },
+                        { origin: radar.destino, destination: radar.origem, departure_date: dtCheckout }
+                    ],
+                    passengers: passageirosArray, cabin_class: 'economy', return_offers: true
+                });
+
+                if (reqPacoteVoo.data.offers?.length > 0) {
+                    const melhorVoo = reqPacoteVoo.data.offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))[0];
+                    const taxaVoo = await obterTaxaDeCambio(melhorVoo.total_currency, moedaBase);
+                    const precoVooConvertido = Math.round((parseFloat(melhorVoo.total_amount) * taxaVoo + 50) * 100) / 100;
+                    
+                    console.log(`  ✈️ Custo Voo (Ida/Volta): ${precoVooConvertido} ${moedaBase}`);
+
+                    // Passo B: Se o voo couber no orçamento, vamos procurar o Hotel
+                    if (precoVooConvertido < precoAlvo) {
+                        const rLoc = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
+                            params: { name: radar.destino, locale: 'pt-br' }, 
+                            headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
+                        });
+                        
+                        if (rLoc.data && rLoc.data.length > 0) {
+                            const local = rLoc.data[0];
+                            const rHot = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/search', {
+                                params: { 
+                                    checkin_date: dtCheckin, checkout_date: dtCheckout, 
+                                    dest_type: local.dest_type, dest_id: local.dest_id, 
+                                    adults_number: qtdPassageiros.toString(), filter_by_currency: moedaBase, 
+                                    order_by: 'price', units: 'metric', locale: 'pt-br' 
+                                },
+                                headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
+                            });
+
+                            if (rHot.data.result?.length > 0) {
+                                const hotelBase = rHot.data.result[0];
+                                const precoHotelConvertido = hotelBase.min_total_price || 0;
+                                const precoTotal = Math.round((precoVooConvertido + precoHotelConvertido) * 100) / 100;
+                                
+                                console.log(`  🏨 Custo Hotel: ${precoHotelConvertido} | TOTAL DO PACOTE: ${precoTotal} ${moedaBase}`);
+
+                                if (precoTotal <= precoAlvo) {
+                                    const companhiaAerea = melhorVoo.owner.name;
+
+                                    await doc.ref.update({
+                                        status: 'encontrado', 
+                                        precoEncontrado: precoTotal,
+                                        precoVooDetalhe: precoVooConvertido, 
+                                        precoHotelDetalhe: precoHotelConvertido,
+                                        nomeHotel: hotelBase.hotel_name, 
+                                        companhia: companhiaAerea,
+                                        offerId: melhorVoo.id, 
+                                        passengerId: reqPacoteVoo.data.passengers[0].id
+                                    });
+                                    console.log(`  🚨 BINGO PACOTE! Voo + Hotel couberam no orçamento.`);
+                                } else { 
+                                    console.log(`  ❌ Preço final (${precoTotal}) acima do alvo (${precoAlvo}).`); 
+                                }
+                            } else { console.log(`  📭 Não foi possível encontrar hotéis baratos o suficiente.`); }
+                        }
+                    } else { 
+                        console.log(`  ❌ O Voo sozinho já esgotou ou ultrapassou o orçamento. Pesquisa de hotel ignorada.`); 
+                    }
+                } else { 
+                    console.log(`  📭 Nenhum voo encontrado para essas datas.`); 
+                }
+            } catch (e) {
+                console.error(`  ⚠️ Erro no Pacote:`, e.message);
+            }
+        }
+        
+        // Pausa suave de 2 segundos entre cada pesquisa para não bloquear as APIs da Duffel/Booking
+        await new Promise(r => setTimeout(r, 2000)); 
     }
 };
 
@@ -420,7 +524,7 @@ const executarBusca = async () => {
 // 🚀 INICIALIZAÇÃO E TEMPORIZADOR
 // ==========================================
 const iniciarRobo = () => {
-    console.log("\n🤖 Robô Go Driver ONLINE com Firebase e Motor de Câmbio!");
+    console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes) ONLINE!");
     executarBusca();
     setInterval(executarBusca, 60000);
 };
