@@ -233,6 +233,37 @@ app.get('/api/hoteis/search', async (req, res) => {
 });
 
 // ==========================================
+// 📸 NOVA ROTA DE FOTOS DO HOTEL (RAPIDAPI)
+// ==========================================
+app.get('/api/hoteis/:id/fotos', async (req, res) => {
+    try {
+        const hotelId = req.params.id;
+        const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
+
+        const options = {
+            method: 'GET',
+            url: 'https://booking-com.p.rapidapi.com/v1/hotels/photos',
+            params: { hotel_id: hotelId, locale: 'pt-br' },
+            headers: {
+                'X-RapidAPI-Key': rapidApiKey,
+                'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+            }
+        };
+
+        const response = await axios.request(options);
+        const fotosBrutas = response.data || [];
+        
+        // Pega as fotos em alta resolução (15 fotos no máximo para ser super rápido)
+        const fotos = fotosBrutas.map(f => f.url_max || f.url_1440 || f.url_square60).filter(f => f != null);
+
+        res.status(200).json(fotos.slice(0, 15));
+    } catch (error) {
+        console.error("❌ ERRO AO BUSCAR FOTOS:", error.message);
+        res.status(200).json([]); // Retorna vazio em caso de erro, para a app não crashar
+    }
+});
+
+// ==========================================
 // 💳 ROTA DE PAGAMENTO STRIPE - GO DRIVER
 // ==========================================
 app.post('/api/pagamento/intencao', async (req, res) => {
