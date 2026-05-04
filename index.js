@@ -144,7 +144,7 @@ app.delete('/api/radares/:id', async (req, res) => {
 // ==========================================
 // 🏨 ROTA DE BUSCA REAL DE HOTÉIS (DUFFEL STAYS)
 // ==========================================
-const axios = require('axios'); // Garante que tens o axios instalado: npm install axios
+const axios = require('axios'); 
 
 app.get('/api/hoteis/search', async (req, res) => {
     try {
