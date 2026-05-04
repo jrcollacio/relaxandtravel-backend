@@ -4,8 +4,9 @@ const path = require('path');
 const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin'); //  Importa Firebase
-const https = require('https'); //  Importado para fazer as consultas de câmbio
+const admin = require('firebase-admin'); //  Importa Firebase
+const https = require('https'); //  Importado para fazer as consultas de câmbio
+const axios = require('axios'); // Para a API do Booking
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -144,8 +145,6 @@ app.delete('/api/radares/:id', async (req, res) => {
 // ==========================================
 // 🏨 ROTA DE BUSCA REAL DE HOTÉIS (RAPIDAPI BOOKING)
 // ==========================================
-const axios = require('axios'); 
-
 app.get('/api/hoteis/search', async (req, res) => {
     try {
         const query = req.query.q;
@@ -155,7 +154,7 @@ app.get('/api/hoteis/search', async (req, res) => {
 
         console.log(`🔎 Buscando ID de destino no Booking para: ${query}`);
 
-        // 1. DESCOBRIR O ID DA CIDADE (Sintaxe correta da API Tipsters)
+        // 1. DESCOBRIR O ID DA CIDADE
         const optionsDestino = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/locations',
@@ -172,19 +171,18 @@ app.get('/api/hoteis/search', async (req, res) => {
             return res.status(404).json({ erro: "Destino não encontrado" });
         }
 
-        // 2. EXTRAIR DADOS DE FORMA SEGURA (Evitar crash se a API mudar algo)
         const local = responseDestino.data[0];
         const destId = local.dest_id;
         const destType = local.dest_type;
 
         console.log(`✅ ID encontrado: ${destId} (${destType}). Buscando hotéis...`);
 
-        // 3. BUSCAR HOTÉIS REAIS NESSE DESTINO (Sintaxe Tipsters)
+        // 2. BUSCAR HOTÉIS REAIS NESSE DESTINO
         const optionsHoteis = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/search',
             params: {
-                checkin_date: '2026-07-10', // Mantém fixo para teste base
+                checkin_date: '2026-07-10', // Padrão de teste
                 dest_type: destType,
                 units: 'metric',
                 checkout_date: '2026-07-15',
@@ -204,19 +202,23 @@ app.get('/api/hoteis/search', async (req, res) => {
         const responseHoteis = await axios.request(optionsHoteis);
         const listaBruta = responseHoteis.data.result || [];
 
-        // 4. FORMATAR PARA O FLUTTER DE FORMA "À PROVA DE BALAS"
+        // 3. FORMATAR COM DESCRIÇÃO RICA PARA O FLUTTER
         const hoteisFormatados = listaBruta.map(h => {
-            // A API tipsters às vezes envia valores estranhos, isto protege a app:
             const foto = (h.max_photo_url && typeof h.max_photo_url === 'string') ? h.max_photo_url : "https://via.placeholder.com/400x200";
             const idHotel = h.hotel_id ? h.hotel_id.toString() : Math.random().toString();
             
+            // Dados ricos para a nova Janela de Detalhes
+            const preco = h.min_total_price ? `Preço Base de Referência: ${h.currencycode} ${h.min_total_price}` : '';
+            const qualidade = h.review_score_word ? `${h.review_score_word}` : 'Bom';
+            const morada = h.address ? h.address : 'Centro da cidade';
+
             return {
                 id: idHotel,
                 name: h.hotel_name || "Hotel sem Nome",
-                stars: h.class || 3, // Pega as estrelas reais do hotel
+                stars: h.class || 3, 
                 rating: h.review_score ? h.review_score.toString() : "8.0",
-                description: `Localizado a ${h.distance_to_cc || '?'}km do centro. ${h.address ? h.address : ''}`,
-                amenities: ["Wi-fi", "Conforto", "Avaliação: " + (h.review_score_word || 'Boa')],
+                description: `Excelente opção em ${query.toUpperCase()}.\n\nEste alojamento está localizado na morada: ${morada} (a aproximadamente ${h.distance_to_cc || '?'}km do centro histórico).\n\n${preco}\n\nCom a garantia de serviço e acompanhamento do Go Driver, ative o seu radar para encontrarmos o melhor preço para as suas datas específicas.`,
+                amenities: ["Wi-fi Gratuito", "Garantia Go Driver", qualidade],
                 images: [foto]
             };
         });
@@ -224,7 +226,6 @@ app.get('/api/hoteis/search', async (req, res) => {
         res.status(200).json(hoteisFormatados);
 
     } catch (error) {
-        // Agora vamos ver o erro REAL nos logs se falhar
         const detalheErro = error.response ? error.response.data : error.message;
         console.error("❌ ERRO DETALHADO NO BOOKING:", detalheErro);
         res.status(500).json({ erro: "Erro ao buscar hotéis reais." });
