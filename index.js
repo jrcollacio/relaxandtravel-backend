@@ -556,7 +556,8 @@ const executarBusca = async () => {
                                     filter_by_currency: moedaBase, 
                                     order_by: 'price', 
                                     units: 'metric', 
-                                    locale: 'pt-br' 
+                                    locale: 'pt-br',
+                                    room_number: '1' // <-- CORREÇÃO DO ERRO 422 AQUI
                                 },
                                 headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
                             });
