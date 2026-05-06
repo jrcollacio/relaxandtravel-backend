@@ -256,7 +256,8 @@ app.get('/api/hoteis/search', async (req, res) => {
             const foto = (h.max_photo_url && typeof h.max_photo_url === 'string') ? h.max_photo_url : "https://via.placeholder.com/400x200";
             const idHotel = h.hotel_id ? h.hotel_id.toString() : Math.random().toString();
             
-            const preco = h.min_total_price ? `Preço Base de Referência: ${h.currencycode} ${h.min_total_price}` : '';
+            const precoLimpo = h.min_total_price ? parseFloat(h.min_total_price).toFixed(2) : '';
+            const preco = precoLimpo ? `Preço Base de Referência: ${h.currencycode} ${precoLimpo}` : '';
             const qualidade = h.review_score_word ? `${h.review_score_word}` : 'Bom';
             const morada = h.address ? h.address : 'Centro da cidade';
 
