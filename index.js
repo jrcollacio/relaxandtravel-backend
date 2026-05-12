@@ -592,72 +592,85 @@ const executarBusca = async () => {
                 if (radar.categoriaCarro === 'Luxo') vClass = 'premium';
                 if (radar.categoriaCarro === 'Van' || radar.categoriaCarro === 'Familiar') vClass = 'minivan';
 
-                const optionsCarro = {
-                    method: 'GET',
-                    url: 'https://booking-com.p.rapidapi.com/v1/car-rental/search',
-                    params: {
-                        pick_up_datetime: `${dtCheckin} 10:00:00`,
-                        drop_off_datetime: `${dtCheckout} 10:00:00`,
-                        pick_up_longitude: '-9.1393', 
-                        pick_up_latitude: '38.7223',  
-                        drop_off_longitude: '-9.1393', // <-- CORREÇÃO: Faltavam as coordenadas de devolução
-                        drop_off_latitude: '38.7223',  // <-- CORREÇÃO
-                        sort_by: 'recommended',
-                        locale: 'pt-br',
-                        currency: moedaBase,
-                        from_country: 'pt'
-                    },
-                    headers: {
-                        'X-RapidAPI-Key': rapidApiKey,
-                        'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+                // 🧠 OTIMIZAÇÃO: VERIFICAR SE O ROBÔ JÁ MEMORIZOU AS COORDENADAS
+                let lat = radar.latitude;
+                let lng = radar.longitude;
+
+                if (!lat || !lng) {
+                    console.log(`  📍 Coordenadas não memorizadas. A gastar 1 chamada da API para descobrir...`);
+                    const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
+                        params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
+                        headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
+                    });
+                    
+                    if (rLocalCarro.data && rLocalCarro.data.length > 0) {
+                        lat = rLocalCarro.data[0].latitude;
+                        lng = rLocalCarro.data[0].longitude;
+                        // GUARDA NO FIREBASE! A próxima pesquisa não gasta esta chamada.
+                        await doc.ref.update({ latitude: lat, longitude: lng });
+                        console.log(`  💾 Memória Atualizada! Lat: ${lat}, Lng: ${lng} guardadas no Firebase.`);
                     }
-                };
-
-                const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
-                    params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
-                    headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
-                });
-
-                if (rLocalCarro.data && rLocalCarro.data.length > 0) {
-                    optionsCarro.params.pick_up_longitude = rLocalCarro.data[0].longitude;
-                    optionsCarro.params.pick_up_latitude = rLocalCarro.data[0].latitude;
-                    optionsCarro.params.drop_off_longitude = rLocalCarro.data[0].longitude; // <-- ATUALIZAÇÃO
-                    optionsCarro.params.drop_off_latitude = rLocalCarro.data[0].latitude;   // <-- ATUALIZAÇÃO
                 }
 
-                const rCarro = await axios.request(optionsCarro);
-                
-                if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
-                    const carrosDisponiveis = rCarro.data.search_results.filter(car => {
-                        const capacidadeOk = parseInt(car.vehicle_info.seats) >= parseInt(radar.lugares || 5);
-                        const classeOk = radar.categoriaCarro === 'Económico' ? true : car.vehicle_info.v_class.toLowerCase().includes(vClass);
-                        return capacidadeOk && classeOk;
-                    }).sort((a, b) => a.pricing_info.price - b.pricing_info.price);
+                // SÓ PESQUISA CARROS SE TIVER COORDENADAS
+                if (lat && lng) {
+                    const optionsCarro = {
+                        method: 'GET',
+                        url: 'https://booking-com.p.rapidapi.com/v1/car-rental/search',
+                        params: {
+                            pick_up_datetime: `${dtCheckin} 10:00:00`,
+                            drop_off_datetime: `${dtCheckout} 10:00:00`,
+                            pick_up_longitude: lng, 
+                            pick_up_latitude: lat,  
+                            drop_off_longitude: lng, 
+                            drop_off_latitude: lat,  
+                            sort_by: 'recommended',
+                            locale: 'pt-br',
+                            currency: moedaBase,
+                            from_country: 'es' // <-- CORREÇÃO 422: Espanha
+                        },
+                        headers: {
+                            'X-RapidAPI-Key': rapidApiKey,
+                            'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+                        }
+                    };
 
-                    if (carrosDisponiveis.length > 0) {
-                        const melhorCarro = carrosDisponiveis[0];
-                        const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info.price);
+                    const rCarro = await axios.request(optionsCarro);
+                    
+                    if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
+                        const carrosDisponiveis = rCarro.data.search_results.filter(car => {
+                            const capacidadeOk = parseInt(car.vehicle_info.seats) >= parseInt(radar.lugares || 5);
+                            const classeOk = radar.categoriaCarro === 'Económico' ? true : car.vehicle_info.v_class.toLowerCase().includes(vClass);
+                            return capacidadeOk && classeOk;
+                        }).sort((a, b) => a.pricing_info.price - b.pricing_info.price);
 
-                        console.log(`  🚗 Achou: ${melhorCarro.vehicle_info.v_name} (${melhorCarro.supplier_info.name}) por ${precoEncontradoCarro} ${moedaBase}`);
+                        if (carrosDisponiveis.length > 0) {
+                            const melhorCarro = carrosDisponiveis[0];
+                            const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info.price);
 
-                        if (precoEncontradoCarro <= precoAlvo) {
-                            await doc.ref.update({
-                                status: 'encontrado',
-                                precoEncontrado: precoEncontradoCarro,
-                                companhia: melhorCarro.supplier_info.name,
-                                categoriaCarro: melhorCarro.vehicle_info.v_name, 
-                                lugares: melhorCarro.vehicle_info.seats,
-                                linkOriginal: 'https://www.rentalcars.com'
-                            });
-                            console.log(`  🚨 BINGO CARROS! Dados salvos.`);
+                            console.log(`  🚗 Achou: ${melhorCarro.vehicle_info.v_name} (${melhorCarro.supplier_info.name}) por ${precoEncontradoCarro} ${moedaBase}`);
+
+                            if (precoEncontradoCarro <= precoAlvo) {
+                                await doc.ref.update({
+                                    status: 'encontrado',
+                                    precoEncontrado: precoEncontradoCarro,
+                                    companhia: melhorCarro.supplier_info.name,
+                                    categoriaCarro: melhorCarro.vehicle_info.v_name, 
+                                    lugares: melhorCarro.vehicle_info.seats,
+                                    linkOriginal: 'https://www.rentalcars.com'
+                                });
+                                console.log(`  🚨 BINGO CARROS! Dados salvos.`);
+                            } else {
+                                console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
+                            }
                         } else {
-                            console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
+                            console.log(`  📭 Nenhum carro da categoria ${radar.categoriaCarro} com ${radar.lugares} lugares encontrado.`);
                         }
                     } else {
-                        console.log(`  📭 Nenhum carro da categoria ${radar.categoriaCarro} com ${radar.lugares} lugares encontrado.`);
+                        console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local.`);
                     }
                 } else {
-                    console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local.`);
+                    console.log(`  ❌ Falha: Não foi possível obter coordenadas para a cidade.`);
                 }
             } catch (e) {
                 const detalhe = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
@@ -675,7 +688,7 @@ const executarBusca = async () => {
 const iniciarRobo = () => {
     console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes, Carros) ONLINE!");
     executarBusca();
-    setInterval(executarBusca, 60000);
+    setInterval(executarBusca, 300000); // <-- OTIMIZAÇÃO: Pesquisa a cada 5 minutos
 };
 
 app.listen(PORT, '0.0.0.0', () => {
