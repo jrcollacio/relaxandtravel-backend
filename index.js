@@ -4,9 +4,9 @@ const path = require('path');
 const { Duffel } = require('@duffel/api');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin'); // Importa Firebase
-const https = require('https'); // Importado para fazer as consultas de câmbio
-const axios = require('axios'); // Para a API do Booking
+const admin = require('firebase-admin'); 
+const https = require('https'); 
+const axios = require('axios'); 
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,7 +28,7 @@ const radaresColl = db.collection('radares');
 // ==========================================
 const duffel = new Duffel({ token: 'duffel_test_nALMdAdvl5V37UC6y1Hm3-kjzqQ9zfjWDrF3GUd_-5R' });
 const stripe = Stripe('sk_test_51TOq1MJ2bakKpaKf3M3IXIVyeOTHWxQcV0lC0yGiLtxU5XbSXa1Q0Mm0ZJRVNiFcbFPBnebEp5AXJcAVHw1LTfxy00Hpd3NtXj'); 
-const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; // Chave global para o Robô usar
+const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
 
 app.use(cors());
 app.use(express.json());
@@ -74,7 +74,6 @@ const obterTaxaDeCambio = (moedaOrigem, moedaDestino) => {
             return resolve(1);
         }
         
-        // Consulta uma API pública e gratuita
         https.get(`https://api.exchangerate-api.com/v4/latest/${moedaOrigem}`, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -91,7 +90,6 @@ const obterTaxaDeCambio = (moedaOrigem, moedaDestino) => {
     });
 };
 
-// Tabela de emergência caso a API financeira falhe
 const getTaxaFallback = (de, para) => {
     const taxas = {
         'EUR_BRL': 5.45, 'USD_BRL': 5.00, 'GBP_BRL': 6.35,
@@ -103,7 +101,6 @@ const getTaxaFallback = (de, para) => {
 // ==========================================
 // 📡 ROTAS DE RADARES (FIREBASE)
 // ==========================================
-
 app.get('/api/radares', async (req, res) => {
     try {
         const userId = req.query.userId;
@@ -163,7 +160,7 @@ app.delete('/api/radares/:id', async (req, res) => {
 });
 
 // ==========================================
-// 🛫 ROTA DE BUSCA DE AEROPORTOS (DUFFEL) - NOVA ROTA
+// 🛫 ROTA DE BUSCA DE AEROPORTOS (DUFFEL)
 // ==========================================
 app.get('/api/aeroportos/search', async (req, res) => {
     try {
@@ -174,7 +171,6 @@ app.get('/api/aeroportos/search', async (req, res) => {
         
         const places = await duffel.suggestions.list({ query: query });
         
-        // Filtra para garantir que apenas devolve locais com código IATA válido
         const aeroportos = places.data
             .filter(p => p.iata_code != null)
             .map(p => ({
@@ -203,7 +199,6 @@ app.get('/api/hoteis/search', async (req, res) => {
 
         console.log(`🔎 Buscando ID de destino no Booking para: ${query}`);
 
-        // 1. DESCOBRIR O ID DA CIDADE
         const optionsDestino = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/locations',
@@ -226,12 +221,11 @@ app.get('/api/hoteis/search', async (req, res) => {
 
         console.log(`✅ ID encontrado: ${destId} (${destType}). Buscando hotéis...`);
 
-        // 2. BUSCAR HOTÉIS REAIS NESSE DESTINO
         const optionsHoteis = {
             method: 'GET',
             url: 'https://booking-com.p.rapidapi.com/v1/hotels/search',
             params: {
-                checkin_date: '2026-07-10', // Padrão de teste visual
+                checkin_date: '2026-07-10', 
                 dest_type: destType,
                 units: 'metric',
                 checkout_date: '2026-07-15',
@@ -251,7 +245,6 @@ app.get('/api/hoteis/search', async (req, res) => {
         const responseHoteis = await axios.request(optionsHoteis);
         const listaBruta = responseHoteis.data.result || [];
 
-        // 3. FORMATAR COM DESCRIÇÃO RICA PARA O FLUTTER
         const hoteisFormatados = listaBruta.map(h => {
             const foto = (h.max_photo_url && typeof h.max_photo_url === 'string') ? h.max_photo_url : "https://via.placeholder.com/400x200";
             const idHotel = h.hotel_id ? h.hotel_id.toString() : Math.random().toString();
@@ -301,7 +294,6 @@ app.get('/api/hoteis/:id/fotos', async (req, res) => {
         const response = await axios.request(options);
         const fotosBrutas = response.data || [];
         
-        // Pega as fotos em alta resolução (15 fotos no máximo para ser super rápido)
         const fotos = fotosBrutas.map(f => f.url_max || f.url_1440 || f.url_square60).filter(f => f != null);
 
         res.status(200).json(fotos.slice(0, 15));
@@ -328,7 +320,7 @@ app.post('/api/pagamento/intencao', async (req, res) => {
       currency: moeda.toLowerCase(),
       automatic_payment_methods: { enabled: true },
       payment_method_options: {
-        card: { installments: { enabled: true } } // Força Parcelamento se a região aceitar
+        card: { installments: { enabled: true } } 
       }
     });
 
@@ -381,33 +373,22 @@ app.post('/api/radares/:id/emitir', async (req, res) => {
 // ==========================================
 // 🤖 O NOVO CÉREBRO TRIPLO DO GO DRIVER
 // ==========================================
-const gerarDatasDeBusca = (dias = 180) => {
-    const datas = [];
-    for (let i = 1; i <= dias; i++) {
-        const d = new Date(); 
-        d.setDate(d.getDate() + i);
-        datas.push(d.toISOString().split('T')[0]); 
-    }
-    return datas;
-};
-
 const executarBusca = async () => {
     const snapshot = await radaresColl.where('status', '==', 'buscando').get();
     
     if (snapshot.empty) {
-        return; // Não envia console.log para não sujar o terminal desnecessariamente
+        return; 
     }
 
     console.log(`\n🔄 CÉREBRO ATIVO: Analisando ${snapshot.size} radares ativos...`);
 
     for (let doc of snapshot.docs) {
         let radar = doc.data();
-        let tipo = radar.tipoRadar || 'voo'; // Se for um radar antigo, assume que é voo
+        let tipo = radar.tipoRadar || 'voo'; 
         
         const precoAlvo = parseFloat(radar.preco.toString().replace(',', '.'));
         const moedaBase = radar.codigoMoeda || 'EUR';
 
-        // Lógica de datas (Proteção para radares flexíveis)
         let dtCheckin = radar.checkin || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         let dtCheckout = radar.checkout || new Date(Date.now() + 35 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         let dVooSoIda = radar.data !== 'Qualquer Data' && !radar.data.includes('Entre') ? radar.data.split('/').reverse().join('-') : dtCheckin;
@@ -462,7 +443,7 @@ const executarBusca = async () => {
         // RAMIFICAÇÃO 2: APENAS HOTEL
         // ---------------------------------------------------------
         else if (tipo === 'hotel') {
-            const cidadeBusca = radar.nomeDestino || radar.destino; // Usa a cidade se existir, senão usa o destino original
+            const cidadeBusca = radar.nomeDestino || radar.destino; 
             console.log(`\n🔎 [ROBÔ HOTEL] Cidade: ${cidadeBusca} | Alvo: ${precoAlvo} ${moedaBase}`);
             try {
                 const rLocal = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
@@ -514,7 +495,6 @@ const executarBusca = async () => {
         else if (tipo === 'pacote') {
             console.log(`\n🔎 [ROBÔ PACOTE] ${radar.origem} ➔ ${radar.destino} | Alvo Total: ${precoAlvo} ${moedaBase}`);
             try {
-                // Passo A: Tentar o Voo de IDA e VOLTA (Duffel usa códigos IATA gravados na origem/destino)
                 const qtdPassageiros = radar.adultos ? parseInt(radar.adultos) : 2;
                 const passageirosArray = Array(qtdPassageiros).fill({ type: 'adult' });
 
@@ -535,7 +515,6 @@ const executarBusca = async () => {
                     
                     console.log(`  ✈️ Custo Voo (Ida/Volta): ${precoVooConvertido} ${moedaBase}`);
 
-                    // Passo B: Se o voo couber no orçamento, vamos procurar o Hotel
                     if (precoVooConvertido < precoAlvo) {
                         const cidadeBusca = radar.nomeDestino || radar.destino;
                         
@@ -558,7 +537,7 @@ const executarBusca = async () => {
                                     order_by: 'price', 
                                     units: 'metric', 
                                     locale: 'pt-br',
-                                    room_number: '1' // <-- CORREÇÃO DO ERRO 422 AQUI
+                                    room_number: '1' 
                                 },
                                 headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' }
                             });
@@ -608,11 +587,6 @@ const executarBusca = async () => {
         else if (tipo === 'carro') {
             console.log(`\n🔎 [ROBÔ CARRO] Local: ${radar.destino} (${radar.nomeDestino}) | Alvo: ${precoAlvo} ${moedaBase}`);
             try {
-                // A API de Carros da Booking requer formatação de data e hora específicos
-                const [anoCheckin, mesCheckin, diaCheckin] = dtCheckin.split('-');
-                const [anoCheckout, mesCheckout, diaCheckout] = dtCheckout.split('-');
-                
-                // Mapeamento das categorias da App para os códigos da API
                 let vClass = 'economy';
                 if (radar.categoriaCarro === 'SUV') vClass = 'suv';
                 if (radar.categoriaCarro === 'Luxo') vClass = 'premium';
@@ -624,8 +598,10 @@ const executarBusca = async () => {
                     params: {
                         pick_up_datetime: `${dtCheckin} 10:00:00`,
                         drop_off_datetime: `${dtCheckout} 10:00:00`,
-                        pick_up_longitude: '-9.1393', // Fallback GPS Lisboa
-                        pick_up_latitude: '38.7223',  // Fallback GPS Lisboa
+                        pick_up_longitude: '-9.1393', 
+                        pick_up_latitude: '38.7223',  
+                        drop_off_longitude: '-9.1393', // <-- CORREÇÃO: Faltavam as coordenadas de devolução
+                        drop_off_latitude: '38.7223',  // <-- CORREÇÃO
                         sort_by: 'recommended',
                         locale: 'pt-br',
                         currency: moedaBase,
@@ -637,7 +613,6 @@ const executarBusca = async () => {
                     }
                 };
 
-                // Como a API de carros usa coordenadas, primeiro convertemos o IATA em GPS (Usando o serviço de Locations)
                 const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
                     params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
                     headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
@@ -646,16 +621,15 @@ const executarBusca = async () => {
                 if (rLocalCarro.data && rLocalCarro.data.length > 0) {
                     optionsCarro.params.pick_up_longitude = rLocalCarro.data[0].longitude;
                     optionsCarro.params.pick_up_latitude = rLocalCarro.data[0].latitude;
+                    optionsCarro.params.drop_off_longitude = rLocalCarro.data[0].longitude; // <-- ATUALIZAÇÃO
+                    optionsCarro.params.drop_off_latitude = rLocalCarro.data[0].latitude;   // <-- ATUALIZAÇÃO
                 }
 
-                // Dispara a busca real de Carros
                 const rCarro = await axios.request(optionsCarro);
                 
                 if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
-                    // Filtra os carros com base na categoria e lotação pretendida, ordenando por preço mais baixo
                     const carrosDisponiveis = rCarro.data.search_results.filter(car => {
                         const capacidadeOk = parseInt(car.vehicle_info.seats) >= parseInt(radar.lugares || 5);
-                        // Filtro flexível: Se for "Económico", aceita "economy" ou "compact"
                         const classeOk = radar.categoriaCarro === 'Económico' ? true : car.vehicle_info.v_class.toLowerCase().includes(vClass);
                         return capacidadeOk && classeOk;
                     }).sort((a, b) => a.pricing_info.price - b.pricing_info.price);
@@ -671,11 +645,11 @@ const executarBusca = async () => {
                                 status: 'encontrado',
                                 precoEncontrado: precoEncontradoCarro,
                                 companhia: melhorCarro.supplier_info.name,
-                                categoriaCarro: melhorCarro.vehicle_info.v_name, // Nome real do carro ex: VW Golf
+                                categoriaCarro: melhorCarro.vehicle_info.v_name, 
                                 lugares: melhorCarro.vehicle_info.seats,
-                                linkOriginal: 'https://www.rentalcars.com' // Link Genérico de Checkout
+                                linkOriginal: 'https://www.rentalcars.com'
                             });
-                            console.log(`  🚨 BINGO CARROS! Dados salvos com sucesso.`);
+                            console.log(`  🚨 BINGO CARROS! Dados salvos.`);
                         } else {
                             console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
                         }
@@ -686,11 +660,11 @@ const executarBusca = async () => {
                     console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local.`);
                 }
             } catch (e) {
-                console.error(`  ⚠️ Erro no Motor de Carros:`, e.message);
+                const detalhe = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
+                console.error(`  ⚠️ Erro no Motor de Carros (422):`, detalhe);
             }
         }
         
-        // Pausa suave de 2 segundos entre cada pesquisa para não bloquear as APIs da Duffel/Booking
         await new Promise(r => setTimeout(r, 2000)); 
     }
 };
@@ -699,7 +673,7 @@ const executarBusca = async () => {
 // 🚀 INICIALIZAÇÃO E TEMPORIZADOR
 // ==========================================
 const iniciarRobo = () => {
-    console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes) ONLINE!");
+    console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes, Carros) ONLINE!");
     executarBusca();
     setInterval(executarBusca, 60000);
 };
