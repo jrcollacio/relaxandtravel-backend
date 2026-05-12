@@ -133,7 +133,7 @@ app.post('/api/radares', async (req, res) => {
 
         // 🔥 GATILHO INSTANTÂNEO: Acorda o Cérebro no exato segundo em que o radar é criado!
         console.log(`\n⚡ NOVO RADAR DETETADO! A forçar pesquisa imediata...`);
-        executarBusca(); // Executa em pano de fundo, sem atrasar a resposta ao utilizador
+        executarBusca();
 
     } catch (e) { 
         res.status(500).send(e.message); 
@@ -641,6 +641,10 @@ const executarBusca = async () => {
                     };
 
                     const rCarro = await axios.request(optionsCarro);
+
+                    // 👇 ESCUTA ATIVADA: Vamos cuspir no log os primeiros 500 caracteres que a Booking nos devolve! 👇
+                    console.log("  🕵️ RAW DATA DA BOOKING (Primeiros 500 caracteres):");
+                    console.log("  ", JSON.stringify(rCarro.data).substring(0, 500));
                     
                     if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
                         const carrosDisponiveis = rCarro.data.search_results.filter(car => {
@@ -679,7 +683,7 @@ const executarBusca = async () => {
                 }
             } catch (e) {
                 const detalhe = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
-                console.error(`  ⚠️ Erro no Motor de Carros (422):`, detalhe);
+                console.error(`  ⚠️ Erro no Motor de Carros:`, detalhe);
             }
         }
         
@@ -693,7 +697,7 @@ const executarBusca = async () => {
 const iniciarRobo = () => {
     console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes, Carros) ONLINE!");
     executarBusca();
-    setInterval(executarBusca, 300000); // <-- OTIMIZAÇÃO: Pesquisa a cada 5 minutos
+    setInterval(executarBusca, 300000); 
 };
 
 app.listen(PORT, '0.0.0.0', () => {
