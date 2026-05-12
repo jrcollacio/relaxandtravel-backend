@@ -131,7 +131,6 @@ app.post('/api/radares', async (req, res) => {
         const docRef = await radaresColl.add(novoRadar);
         res.status(201).json({ id_db: docRef.id, ...novoRadar });
 
-        // 🔥 GATILHO INSTANTÂNEO: Acorda o Cérebro no exato segundo em que o radar é criado!
         console.log(`\n⚡ NOVO RADAR DETETADO! A forçar pesquisa imediata...`);
         executarBusca();
 
@@ -601,8 +600,9 @@ const executarBusca = async () => {
                 let lng = radar.longitude;
 
                 if (!lat || !lng) {
-                    console.log(`  📍 Coordenadas não memorizadas. A gastar 1 chamada...`);
-                    const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
+                    console.log(`  📍 Coordenadas não memorizadas. A usar API de LOCALIZAÇÃO DE CARROS...`);
+                    // 🧠 SENIOR FIX: Usamos a API específica de "car-rental/locations" para o ponto exato de balcões
+                    const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/car-rental/locations', { 
                         params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
                         headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
                     });
@@ -611,7 +611,7 @@ const executarBusca = async () => {
                         lat = rLocalCarro.data[0].latitude;
                         lng = rLocalCarro.data[0].longitude;
                         await doc.ref.update({ latitude: lat, longitude: lng });
-                        console.log(`  💾 Memória Atualizada! Lat: ${lat}, Lng: ${lng}`);
+                        console.log(`  💾 Memória Atualizada (Pickup Station)! Lat: ${lat}, Lng: ${lng}`);
                     }
                 }
 
@@ -638,21 +638,17 @@ const executarBusca = async () => {
                     };
 
                     const rCarro = await axios.request(optionsCarro);
-                    
-                    // O CÉREBRO ADAPTÁVEL: Lê "search_results", "content" ou devolve vazio.
                     const frotaBruta = rCarro.data.search_results || rCarro.data.content || [];
                     
-                    const chaves = Object.keys(rCarro.data);
-                    console.log(`  🕵️ Estrutura da API: [${chaves.join(', ')}] | Carros detetados: ${frotaBruta.length}`);
+                    console.log(`  🕵️ API Rent-a-Car: ${frotaBruta.length} carros encontrados.`);
                     
                     if (frotaBruta.length > 0) {
                         const carrosDisponiveis = frotaBruta.filter(car => {
-                            // Extração com proteção extra contra mudanças da Booking
                             const seats = car.vehicle_info?.seats || car.seats || 5;
                             const vClassApi = car.vehicle_info?.v_class || car.v_class || '';
                             
                             const capacidadeOk = parseInt(seats) >= parseInt(radar.lugares || 5);
-                            const classeOk = radar.categoriaCarro === 'Económico' ? true : vClassApi.toLowerCase().includes(vClass);
+                            const classeOk = radar.categoriaCarro === 'Económico' ? true : vClassApi.toLowerCase().includes(vClass.toLowerCase());
                             
                             return capacidadeOk && classeOk;
                         }).sort((a, b) => {
@@ -663,8 +659,6 @@ const executarBusca = async () => {
 
                         if (carrosDisponiveis.length > 0) {
                             const melhorCarro = carrosDisponiveis[0];
-                            
-                            // Mapeamento à prova de balas
                             const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info?.price || melhorCarro.price || 0);
                             const nomeCarro = melhorCarro.vehicle_info?.v_name || melhorCarro.name || 'Carro Alugado';
                             const nomeFornecedor = melhorCarro.supplier_info?.name || melhorCarro.supplier || 'Agência Local';
@@ -681,7 +675,7 @@ const executarBusca = async () => {
                                     lugares: lugaresCarro,
                                     linkOriginal: 'https://www.rentalcars.com'
                                 });
-                                console.log(`  🚨 BINGO CARROS! Dados salvos com sucesso.`);
+                                console.log(`  🚨 BINGO CARROS! Dados salvos.`);
                             } else {
                                 console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
                             }
@@ -689,10 +683,10 @@ const executarBusca = async () => {
                             console.log(`  📭 Nenhum carro da categoria ${radar.categoriaCarro} com ${radar.lugares} lugares encontrado.`);
                         }
                     } else {
-                        console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local exato.`);
+                        console.log(`  📭 Nenhuma rent-a-car com frota disponível nestas coordenadas.`);
                     }
                 } else {
-                    console.log(`  ❌ Falha: Não foi possível obter coordenadas para a cidade.`);
+                    console.log(`  ❌ Falha: Não foi possível obter coordenadas de Pickup.`);
                 }
             } catch (e) {
                 const detalhe = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
