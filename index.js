@@ -597,12 +597,11 @@ const executarBusca = async () => {
                 if (radar.categoriaCarro === 'Luxo') vClass = 'premium';
                 if (radar.categoriaCarro === 'Van' || radar.categoriaCarro === 'Familiar') vClass = 'minivan';
 
-                // 🧠 OTIMIZAÇÃO: VERIFICAR SE O ROBÔ JÁ MEMORIZOU AS COORDENADAS
                 let lat = radar.latitude;
                 let lng = radar.longitude;
 
                 if (!lat || !lng) {
-                    console.log(`  📍 Coordenadas não memorizadas. A gastar 1 chamada da API para descobrir...`);
+                    console.log(`  📍 Coordenadas não memorizadas. A gastar 1 chamada...`);
                     const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
                         params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
                         headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
@@ -611,20 +610,18 @@ const executarBusca = async () => {
                     if (rLocalCarro.data && rLocalCarro.data.length > 0) {
                         lat = rLocalCarro.data[0].latitude;
                         lng = rLocalCarro.data[0].longitude;
-                        // GUARDA NO FIREBASE! A próxima pesquisa não gasta esta chamada.
                         await doc.ref.update({ latitude: lat, longitude: lng });
-                        console.log(`  💾 Memória Atualizada! Lat: ${lat}, Lng: ${lng} guardadas no Firebase.`);
+                        console.log(`  💾 Memória Atualizada! Lat: ${lat}, Lng: ${lng}`);
                     }
                 }
 
-                // SÓ PESQUISA CARROS SE TIVER COORDENADAS
                 if (lat && lng) {
                     const optionsCarro = {
                         method: 'GET',
                         url: 'https://booking-com.p.rapidapi.com/v1/car-rental/search',
                         params: {
-                            pick_up_datetime: `${dtCheckin} 10:00:00`,
-                            drop_off_datetime: `${dtCheckout} 10:00:00`,
+                            pick_up_datetime: `${dtCheckin} 10:00`,   // <-- CORREÇÃO: Sem os ':00' dos segundos!
+                            drop_off_datetime: `${dtCheckout} 10:00`, // <-- CORREÇÃO: Sem os ':00' dos segundos!
                             pick_up_longitude: lng, 
                             pick_up_latitude: lat,  
                             drop_off_longitude: lng, 
@@ -632,7 +629,7 @@ const executarBusca = async () => {
                             sort_by: 'recommended',
                             locale: 'pt-br',
                             currency: moedaBase,
-                            from_country: 'es' // <-- CORREÇÃO 422: Espanha
+                            from_country: 'es' 
                         },
                         headers: {
                             'X-RapidAPI-Key': rapidApiKey,
@@ -641,10 +638,11 @@ const executarBusca = async () => {
                     };
 
                     const rCarro = await axios.request(optionsCarro);
-
-                    // 👇 ESCUTA ATIVADA: Vamos cuspir no log os primeiros 500 caracteres que a Booking nos devolve! 👇
-                    console.log("  🕵️ RAW DATA DA BOOKING (Primeiros 500 caracteres):");
-                    console.log("  ", JSON.stringify(rCarro.data).substring(0, 500));
+                    
+                    // NOVA ESCUTA INTELIGENTE
+                    const chaves = Object.keys(rCarro.data);
+                    const totalCarros = rCarro.data.search_results ? rCarro.data.search_results.length : 0;
+                    console.log(`  🕵️ Estrutura do JSON: [${chaves.join(', ')}] | Carros encontrados na API: ${totalCarros}`);
                     
                     if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
                         const carrosDisponiveis = rCarro.data.search_results.filter(car => {
@@ -676,7 +674,7 @@ const executarBusca = async () => {
                             console.log(`  📭 Nenhum carro da categoria ${radar.categoriaCarro} com ${radar.lugares} lugares encontrado.`);
                         }
                     } else {
-                        console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local.`);
+                        console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local exato.`);
                     }
                 } else {
                     console.log(`  ❌ Falha: Não foi possível obter coordenadas para a cidade.`);
