@@ -131,6 +131,7 @@ app.post('/api/radares', async (req, res) => {
         const docRef = await radaresColl.add(novoRadar);
         res.status(201).json({ id_db: docRef.id, ...novoRadar });
 
+        // 🔥 GATILHO INSTANTÂNEO: Acorda o Cérebro no exato segundo em que o radar é criado!
         console.log(`\n⚡ NOVO RADAR DETETADO! A forçar pesquisa imediata...`);
         executarBusca();
 
@@ -601,7 +602,6 @@ const executarBusca = async () => {
 
                 if (!lat || !lng) {
                     console.log(`  📍 Coordenadas não memorizadas. A usar API de LOCALIZAÇÃO DE CARROS...`);
-                    // 🧠 SENIOR FIX: Usamos a API específica de "car-rental/locations" para o ponto exato de balcões
                     const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/car-rental/locations', { 
                         params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
                         headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
@@ -638,11 +638,36 @@ const executarBusca = async () => {
                     };
 
                     const rCarro = await axios.request(optionsCarro);
-                    const frotaBruta = rCarro.data.search_results || rCarro.data.content || [];
                     
-                    console.log(`  🕵️ API Rent-a-Car: ${frotaBruta.length} carros encontrados.`);
+                    // 🧠 SENIOR FIX 2.0: EXTRATOR BLINDADO DE FROTA
+                    // A API da Booking escondeu os carros dentro de um Objeto em vez de um Array.
+                    let frotaBruta = [];
                     
-                    if (frotaBruta.length > 0) {
+                    if (Array.isArray(rCarro.data.search_results)) {
+                        frotaBruta = rCarro.data.search_results;
+                    } else if (rCarro.data.content) {
+                        if (Array.isArray(rCarro.data.content)) {
+                            frotaBruta = rCarro.data.content;
+                        } else if (typeof rCarro.data.content === 'object') {
+                            // Procura agressiva pela lista de carros dentro de chaves conhecidas
+                            frotaBruta = rCarro.data.content.results || 
+                                         rCarro.data.content.search_results || 
+                                         rCarro.data.content.cars || 
+                                         rCarro.data.content.vehicles || [];
+                                         
+                            // Se falhar, varremos o objeto inteiro à procura do maior Array (que será a frota!)
+                            if (!Array.isArray(frotaBruta) || frotaBruta.length === 0) {
+                                const arraysEncontrados = Object.values(rCarro.data.content).filter(val => Array.isArray(val));
+                                if (arraysEncontrados.length > 0) {
+                                    frotaBruta = arraysEncontrados.sort((a, b) => b.length - a.length)[0];
+                                }
+                            }
+                        }
+                    }
+
+                    console.log(`  🕵️ API Rent-a-Car: ${frotaBruta ? frotaBruta.length : 0} carros detetados após extração profunda.`);
+                    
+                    if (frotaBruta && frotaBruta.length > 0) {
                         const carrosDisponiveis = frotaBruta.filter(car => {
                             const seats = car.vehicle_info?.seats || car.seats || 5;
                             const vClassApi = car.vehicle_info?.v_class || car.v_class || '';
@@ -684,6 +709,9 @@ const executarBusca = async () => {
                         }
                     } else {
                         console.log(`  📭 Nenhuma rent-a-car com frota disponível nestas coordenadas.`);
+                        if (frotaBruta && frotaBruta.length === 0) {
+                             console.log("  ⚠️ DEBUG EXTRA: As chaves dentro de content são:", Object.keys(rCarro.data.content || {}));
+                        }
                     }
                 } else {
                     console.log(`  ❌ Falha: Não foi possível obter coordenadas de Pickup.`);
@@ -702,7 +730,7 @@ const executarBusca = async () => {
 // 🚀 INICIALIZAÇÃO E TEMPORIZADOR
 // ==========================================
 const iniciarRobo = () => {
-    console.log("\n🤖 Cérebro Triplo do Go Driver (Voo, Hotel, Pacotes, Carros) ONLINE!");
+    console.log("\n🤖 Cérebro Triplo do Go Driver ONLINE!");
     executarBusca();
     setInterval(executarBusca, 300000); 
 };
