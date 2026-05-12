@@ -130,6 +130,11 @@ app.post('/api/radares', async (req, res) => {
         };
         const docRef = await radaresColl.add(novoRadar);
         res.status(201).json({ id_db: docRef.id, ...novoRadar });
+
+        // 🔥 GATILHO INSTANTÂNEO: Acorda o Cérebro no exato segundo em que o radar é criado!
+        console.log(`\n⚡ NOVO RADAR DETETADO! A forçar pesquisa imediata...`);
+        executarBusca(); // Executa em pano de fundo, sem atrasar a resposta ao utilizador
+
     } catch (e) { 
         res.status(500).send(e.message); 
     }
