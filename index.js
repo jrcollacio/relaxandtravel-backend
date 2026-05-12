@@ -601,6 +601,94 @@ const executarBusca = async () => {
                 console.error(`  ⚠️ Erro no Pacote:`, e.message);
             }
         }
+
+        // ---------------------------------------------------------
+        // RAMIFICAÇÃO 4: ALUGUER DE CARROS (RENT-A-CAR)
+        // ---------------------------------------------------------
+        else if (tipo === 'carro') {
+            console.log(`\n🔎 [ROBÔ CARRO] Local: ${radar.destino} (${radar.nomeDestino}) | Alvo: ${precoAlvo} ${moedaBase}`);
+            try {
+                // A API de Carros da Booking requer formatação de data e hora específicos
+                const [anoCheckin, mesCheckin, diaCheckin] = dtCheckin.split('-');
+                const [anoCheckout, mesCheckout, diaCheckout] = dtCheckout.split('-');
+                
+                // Mapeamento das categorias da App para os códigos da API
+                let vClass = 'economy';
+                if (radar.categoriaCarro === 'SUV') vClass = 'suv';
+                if (radar.categoriaCarro === 'Luxo') vClass = 'premium';
+                if (radar.categoriaCarro === 'Van' || radar.categoriaCarro === 'Familiar') vClass = 'minivan';
+
+                const optionsCarro = {
+                    method: 'GET',
+                    url: 'https://booking-com.p.rapidapi.com/v1/car-rental/search',
+                    params: {
+                        pick_up_datetime: `${dtCheckin} 10:00:00`,
+                        drop_off_datetime: `${dtCheckout} 10:00:00`,
+                        pick_up_longitude: '-9.1393', // Fallback GPS Lisboa
+                        pick_up_latitude: '38.7223',  // Fallback GPS Lisboa
+                        sort_by: 'recommended',
+                        locale: 'pt-br',
+                        currency: moedaBase,
+                        from_country: 'pt'
+                    },
+                    headers: {
+                        'X-RapidAPI-Key': rapidApiKey,
+                        'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+                    }
+                };
+
+                // Como a API de carros usa coordenadas, primeiro convertemos o IATA em GPS (Usando o serviço de Locations)
+                const rLocalCarro = await axios.get('https://booking-com.p.rapidapi.com/v1/hotels/locations', { 
+                    params: { name: radar.nomeDestino || radar.destino, locale: 'pt-br' }, 
+                    headers: { 'X-RapidAPI-Key': rapidApiKey, 'X-RapidAPI-Host': 'booking-com.p.rapidapi.com' } 
+                });
+
+                if (rLocalCarro.data && rLocalCarro.data.length > 0) {
+                    optionsCarro.params.pick_up_longitude = rLocalCarro.data[0].longitude;
+                    optionsCarro.params.pick_up_latitude = rLocalCarro.data[0].latitude;
+                }
+
+                // Dispara a busca real de Carros
+                const rCarro = await axios.request(optionsCarro);
+                
+                if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
+                    // Filtra os carros com base na categoria e lotação pretendida, ordenando por preço mais baixo
+                    const carrosDisponiveis = rCarro.data.search_results.filter(car => {
+                        const capacidadeOk = parseInt(car.vehicle_info.seats) >= parseInt(radar.lugares || 5);
+                        // Filtro flexível: Se for "Económico", aceita "economy" ou "compact"
+                        const classeOk = radar.categoriaCarro === 'Económico' ? true : car.vehicle_info.v_class.toLowerCase().includes(vClass);
+                        return capacidadeOk && classeOk;
+                    }).sort((a, b) => a.pricing_info.price - b.pricing_info.price);
+
+                    if (carrosDisponiveis.length > 0) {
+                        const melhorCarro = carrosDisponiveis[0];
+                        const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info.price);
+
+                        console.log(`  🚗 Achou: ${melhorCarro.vehicle_info.v_name} (${melhorCarro.supplier_info.name}) por ${precoEncontradoCarro} ${moedaBase}`);
+
+                        if (precoEncontradoCarro <= precoAlvo) {
+                            await doc.ref.update({
+                                status: 'encontrado',
+                                precoEncontrado: precoEncontradoCarro,
+                                companhia: melhorCarro.supplier_info.name,
+                                categoriaCarro: melhorCarro.vehicle_info.v_name, // Nome real do carro ex: VW Golf
+                                lugares: melhorCarro.vehicle_info.seats,
+                                linkOriginal: 'https://www.rentalcars.com' // Link Genérico de Checkout
+                            });
+                            console.log(`  🚨 BINGO CARROS! Dados salvos com sucesso.`);
+                        } else {
+                            console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
+                        }
+                    } else {
+                        console.log(`  📭 Nenhum carro da categoria ${radar.categoriaCarro} com ${radar.lugares} lugares encontrado.`);
+                    }
+                } else {
+                    console.log(`  📭 Nenhuma rent-a-car com frota disponível neste local.`);
+                }
+            } catch (e) {
+                console.error(`  ⚠️ Erro no Motor de Carros:`, e.message);
+            }
+        }
         
         // Pausa suave de 2 segundos entre cada pesquisa para não bloquear as APIs da Duffel/Booking
         await new Promise(r => setTimeout(r, 2000)); 
