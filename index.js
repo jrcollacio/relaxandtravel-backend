@@ -620,8 +620,8 @@ const executarBusca = async () => {
                         method: 'GET',
                         url: 'https://booking-com.p.rapidapi.com/v1/car-rental/search',
                         params: {
-                            pick_up_datetime: `${dtCheckin} 10:00`,   // <-- CORREÇÃO: Sem os ':00' dos segundos!
-                            drop_off_datetime: `${dtCheckout} 10:00`, // <-- CORREÇÃO: Sem os ':00' dos segundos!
+                            pick_up_datetime: `${dtCheckin} 10:00`,
+                            drop_off_datetime: `${dtCheckout} 10:00`,
                             pick_up_longitude: lng, 
                             pick_up_latitude: lat,  
                             drop_off_longitude: lng, 
@@ -639,34 +639,49 @@ const executarBusca = async () => {
 
                     const rCarro = await axios.request(optionsCarro);
                     
-                    // NOVA ESCUTA INTELIGENTE
-                    const chaves = Object.keys(rCarro.data);
-                    const totalCarros = rCarro.data.search_results ? rCarro.data.search_results.length : 0;
-                    console.log(`  🕵️ Estrutura do JSON: [${chaves.join(', ')}] | Carros encontrados na API: ${totalCarros}`);
+                    // O CÉREBRO ADAPTÁVEL: Lê "search_results", "content" ou devolve vazio.
+                    const frotaBruta = rCarro.data.search_results || rCarro.data.content || [];
                     
-                    if (rCarro.data && rCarro.data.search_results && rCarro.data.search_results.length > 0) {
-                        const carrosDisponiveis = rCarro.data.search_results.filter(car => {
-                            const capacidadeOk = parseInt(car.vehicle_info.seats) >= parseInt(radar.lugares || 5);
-                            const classeOk = radar.categoriaCarro === 'Económico' ? true : car.vehicle_info.v_class.toLowerCase().includes(vClass);
+                    const chaves = Object.keys(rCarro.data);
+                    console.log(`  🕵️ Estrutura da API: [${chaves.join(', ')}] | Carros detetados: ${frotaBruta.length}`);
+                    
+                    if (frotaBruta.length > 0) {
+                        const carrosDisponiveis = frotaBruta.filter(car => {
+                            // Extração com proteção extra contra mudanças da Booking
+                            const seats = car.vehicle_info?.seats || car.seats || 5;
+                            const vClassApi = car.vehicle_info?.v_class || car.v_class || '';
+                            
+                            const capacidadeOk = parseInt(seats) >= parseInt(radar.lugares || 5);
+                            const classeOk = radar.categoriaCarro === 'Económico' ? true : vClassApi.toLowerCase().includes(vClass);
+                            
                             return capacidadeOk && classeOk;
-                        }).sort((a, b) => a.pricing_info.price - b.pricing_info.price);
+                        }).sort((a, b) => {
+                            const precoA = a.pricing_info?.price || a.price || 0;
+                            const precoB = b.pricing_info?.price || b.price || 0;
+                            return precoA - precoB;
+                        });
 
                         if (carrosDisponiveis.length > 0) {
                             const melhorCarro = carrosDisponiveis[0];
-                            const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info.price);
+                            
+                            // Mapeamento à prova de balas
+                            const precoEncontradoCarro = parseFloat(melhorCarro.pricing_info?.price || melhorCarro.price || 0);
+                            const nomeCarro = melhorCarro.vehicle_info?.v_name || melhorCarro.name || 'Carro Alugado';
+                            const nomeFornecedor = melhorCarro.supplier_info?.name || melhorCarro.supplier || 'Agência Local';
+                            const lugaresCarro = melhorCarro.vehicle_info?.seats || melhorCarro.seats || radar.lugares;
 
-                            console.log(`  🚗 Achou: ${melhorCarro.vehicle_info.v_name} (${melhorCarro.supplier_info.name}) por ${precoEncontradoCarro} ${moedaBase}`);
+                            console.log(`  🚗 Achou: ${nomeCarro} (${nomeFornecedor}) por ${precoEncontradoCarro} ${moedaBase}`);
 
                             if (precoEncontradoCarro <= precoAlvo) {
                                 await doc.ref.update({
                                     status: 'encontrado',
                                     precoEncontrado: precoEncontradoCarro,
-                                    companhia: melhorCarro.supplier_info.name,
-                                    categoriaCarro: melhorCarro.vehicle_info.v_name, 
-                                    lugares: melhorCarro.vehicle_info.seats,
+                                    companhia: nomeFornecedor,
+                                    categoriaCarro: nomeCarro, 
+                                    lugares: lugaresCarro,
                                     linkOriginal: 'https://www.rentalcars.com'
                                 });
-                                console.log(`  🚨 BINGO CARROS! Dados salvos.`);
+                                console.log(`  🚨 BINGO CARROS! Dados salvos com sucesso.`);
                             } else {
                                 console.log(`  ❌ Preço do carro (${precoEncontradoCarro}) acima do alvo (${precoAlvo}).`);
                             }
