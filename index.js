@@ -28,7 +28,7 @@ const radaresColl = db.collection('radares');
 // ==========================================
 const duffel = new Duffel({ token: 'duffel_test_nALMdAdvl5V37UC6y1Hm3-kjzqQ9zfjWDrF3GUd_-5R' });
 const stripe = Stripe('sk_test_51TOq1MJ2bakKpaKf3M3IXIVyeOTHWxQcV0lC0yGiLtxU5XbSXa1Q0Mm0ZJRVNiFcbFPBnebEp5AXJcAVHw1LTfxy00Hpd3NtXj'); 
-const rapidApiKey = '74dc81285fmshb1ea8d791eb4091p1015c6jsn826e86f37b00'; 
+const rapidApiKey = '363302cf2dmsha9976e6d3751a77p1e39fbjsn6287653bf4fa'; 
 
 app.use(cors());
 app.use(express.json());
